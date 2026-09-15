@@ -1,0 +1,4 @@
+interface:
+  display_name: "Transferencia de OSMEs"
+  short_description: "Executa e mantem transferencias Z62 e Z61"
+  default_prompt: "Use $executar-transferencia-osmes para executar ou corrigir a transferencia completa de OSMEs."

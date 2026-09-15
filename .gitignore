@@ -1,22 +1,21 @@
+*.spec
+build/
+dist/
+dist_*/
 __pycache__/
 *.pyc
-*.pyo
-*.exe
-dist/
-build/
-*.spec
-*.lnk
+.opencode/
+teste_rapido.vbs
+SCRIPT20.VBS
+SCRIPT21.VBS
+SCRIPT24.VBS
+SCRIPT25.VBS
+scratch_page.html
+backup_pre_limpeza_v21/
 etiquetas_geradas/
-Nova pasta/
-
-# Senhas e chaves de API
-logins_sap.json
-config_chat.txt
-config_tema_hub.txt
-config_rete_caminho.json
-config_rete_layout.json
-
-# Arquivos temporarios VBS e logs
-*.tmp
-log_*.xlsx
-
+data/*.log
+data/config_rete_*.json
+data/config_tema_hub.txt
+*config_fichas.json
+*logins_sap.json
+*config_chat.txt

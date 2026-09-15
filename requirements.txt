@@ -1,9 +1,3 @@
-pandas
-openpyxl
-reportlab
-qrcode
-pywin32
-Pillow
-numpy
-requests
-customtkinter
+pywin32>=306
+pyinstaller>=6.0
+selenium>=4.20

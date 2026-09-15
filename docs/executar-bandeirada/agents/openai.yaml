@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bandeirada SAP"
+  short_description: "Executa e mantem o fluxo SAP da Bandeirada"
+  default_prompt: "Use $executar-bandeirada para executar ou corrigir o fluxo de Bandeirada no SAP."
