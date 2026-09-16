@@ -20,7 +20,7 @@ All under the repo root, no package structure. Each exports a `construir_aba_*` 
 | `modulo_extrair_OSME.py` | Extrator OSME | Yes |
 | `modulo_conferencia.py` | Conferência | No |
 | `modulo_chat.py` | Chatbot (popup) | No |
-| `modulo_controle_material.py` | Controle de Material (fmain) | Yes (MIGO/Movimentações) |
+| `modulo_consultar_migo.py` | Consultar MIGO (Clandestinas RCL001..RCL008) | Yes (IW39 / MIGO) |
 
 ## Build
 

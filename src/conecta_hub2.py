@@ -57,7 +57,7 @@ mudanca_recurso_view = None
 dashboard_view = None
 fichas_view = None
 plataforma_view = None
-controle_material_view = None
+consultar_migo_view = None
 
 def carregar_tema_salvo():
     if os.path.exists(CONFIG_FILE):
@@ -214,6 +214,7 @@ def aplicar_tema(tema_nome):
     if dashboard_view: dashboard_view.aplicar_tema(tema_nome)
     if fichas_view: fichas_view.aplicar_tema(tema_nome)
     if plataforma_view: plataforma_view.aplicar_tema(tema_nome)
+    if consultar_migo_view: consultar_migo_view.aplicar_tema(tema_nome)
 
 def atualizar_info_sap():
     """Consulta o status do SAP de forma 100% assíncrona, sem travar a interface gráfica."""
@@ -329,7 +330,7 @@ tab_name_zm02 = "⚙️ Entrada ZM02"
 tab_name_conferencia = "📦 Conferencia"
 tab_name_fichas = "📋 Fichas"
 tab_name_plataforma = "📈 Relatório Plataforma"
-tab_name_controle_mat = "📦 Controle Material"
+tab_name_consultar_migo = "🔍 Consultar MIGO"
 
 tab_home = notebook.add(tab_name_home)
 tab_gerador = notebook.add(tab_name_gerador)
@@ -343,7 +344,7 @@ tab_conferencia = notebook.add(tab_name_conferencia)
 tab_zm02 = notebook.add(tab_name_zm02)
 tab_fichas = notebook.add(tab_name_fichas)
 tab_plataforma = notebook.add(tab_name_plataforma)
-tab_controle_mat = notebook.add(tab_name_controle_mat)
+tab_consultar_migo = notebook.add(tab_name_consultar_migo)
 
 # STATUS BAR
 bar_status = ctk.CTkFrame(root, height=30, corner_radius=0)
@@ -360,7 +361,7 @@ lbl_creditos.pack(side="right", padx=10, pady=2)
 
 # ================== INICIALIZAÇAO ASSÍNCRONA E NÃO-BLOQUEANTE DOS MÓDULOS ==================
 def inicializar_modulos():
-    global dashboard_view, etiquetas_view, extrator_view, sap_view, bandeirada_view, osme_view, transferenciaosme_view, conferencia_view, zm02_view, fichas_view, controle_material_view
+    global dashboard_view, etiquetas_view, extrator_view, sap_view, bandeirada_view, osme_view, transferenciaosme_view, conferencia_view, zm02_view, fichas_view, consultar_migo_view
 
     # Importações pesadas só começam depois que o splash já foi desenhado.
     global construir_aba_sap, obter_info_sap_atual, consultar_info_sap_async
@@ -369,7 +370,7 @@ def inicializar_modulos():
     global construir_aba_extrair_osme, construir_aba_extrator, JanelaChat
     global construir_aba_zmcse003, construir_aba_transferencia_osme
     global construir_aba_mudanca_recurso, construir_aba_dashboard, construir_aba_fichas, construir_aba_plataforma
-    global construir_aba_controle_material
+    global construir_aba_consultar_migo
     from modulo_Sap import construir_aba_sap, obter_info_sap_atual, consultar_info_sap_async
     from modulo_bandeirada import construir_aba_bandeirada
     from modulo_conferencia import construir_aba_conferencia
@@ -383,7 +384,7 @@ def inicializar_modulos():
     from modulo_dashboard import construir_aba_dashboard
     from modulo_fichas import construir_aba_fichas
     from modulo_plataforma import construir_aba_plataforma
-    from modulo_controle_material import construir_aba_controle_material
+    from modulo_consultar_migo import construir_aba_consultar_migo
 
     def etapa_1():
         global dashboard_view
@@ -438,15 +439,15 @@ def inicializar_modulos():
         root.after(10, etapa_6)
 
     def etapa_6():
-        global transferenciaosme_view, conferencia_view, zm02_view, mudanca_recurso_view, controle_material_view
+        global transferenciaosme_view, conferencia_view, zm02_view, mudanca_recurso_view, consultar_migo_view
         splash_progress.set(0.95)
-        lbl_splash_loading.configure(text="Carregando Mudança de Recurso, ZM02, Conferência e Controle Material...")
+        lbl_splash_loading.configure(text="Carregando Mudança de Recurso, ZM02, Conferência e Consultar MIGO...")
         try:
             transferenciaosme_view = construir_aba_transferencia_osme(tab_transfosme, lbl_status, PALETAS, obter_tema_atual)
             mudanca_recurso_view = construir_aba_mudanca_recurso(tab_mudanca, lbl_status, PALETAS, obter_tema_atual)
             conferencia_view = construir_aba_conferencia(tab_conferencia, lbl_status, PALETAS, obter_tema_atual)
             zm02_view = construir_aba_zmcse003(tab_zm02, PALETAS, obter_tema_atual)
-            controle_material_view = construir_aba_controle_material(tab_controle_mat, lbl_status, PALETAS, obter_tema_atual)
+            consultar_migo_view = construir_aba_consultar_migo(tab_consultar_migo, lbl_status, PALETAS, obter_tema_atual)
         except Exception as e:
             log_error(f"Erro ao carregar módulos finais: {e}")
         root.after(10, etapa_final)
