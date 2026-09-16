@@ -124,88 +124,130 @@ class AbaConsultarMigo:
         self.frame_inputs = ctk.CTkFrame(self.parent_frame, corner_radius=8)
         self.frame_inputs.grid(row=1, column=0, padx=10, pady=5, sticky="ew")
 
-        # Linha de inputs
-        f_in = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
-        f_in.pack(fill="x", padx=15, pady=8)
+        # Linha 1: Consulta Individual (Foco Principal)
+        f_in1 = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
+        f_in1.pack(fill="x", padx=15, pady=(8, 4))
 
-        lbl_eq = ctk.CTkLabel(f_in, text="Equipe Clandestina:", font=("Segoe UI", 11, "bold"))
-        lbl_eq.pack(side="left", padx=(0, 5))
+        lbl_indiv = ctk.CTkLabel(f_in1, text="Individual:", font=("Segoe UI", 11, "bold"))
+        lbl_indiv.pack(side="left", padx=(0, 6))
 
         self.combo_equipe = ctk.CTkComboBox(
-            f_in,
+            f_in1,
             values=EQUIPES_CLANDESTINAS,
-            width=110,
+            width=105,
             height=28,
             font=("Segoe UI", 11, "bold"),
             command=self._ao_mudar_combo
         )
         self.combo_equipe.set("RCL001")
-        self.combo_equipe.pack(side="left", padx=(0, 15))
+        self.combo_equipe.pack(side="left", padx=(0, 10))
 
-        lbl_ord = ctk.CTkLabel(f_in, text="Ordem IW39:", font=("Segoe UI", 11, "bold"))
+        lbl_ord = ctk.CTkLabel(f_in1, text="Ordem IW39:", font=("Segoe UI", 11, "bold"))
         lbl_ord.pack(side="left", padx=(0, 5))
 
         self.entry_ordem = ctk.CTkEntry(
-            f_in,
+            f_in1,
             placeholder_text="Auto ou Digite...",
-            width=140,
+            width=135,
             height=28,
             font=("Segoe UI", 11)
         )
-        self.entry_ordem.pack(side="left", padx=(0, 20))
-
-        # Botões de Ação
-        self.btn_buscar_ordem = ctk.CTkButton(
-            f_in,
-            text="🔎 1. Buscar Ordem (IW39)",
-            width=165,
-            height=28,
-            font=("Segoe UI", 11, "bold"),
-            command=self.iniciar_busca_ordem_iw39
-        )
-        self.btn_buscar_ordem.pack(side="left", padx=4)
-
-        self.btn_consultar_migo = ctk.CTkButton(
-            f_in,
-            text="📦 2. Consultar MIGO",
-            width=150,
-            height=28,
-            font=("Segoe UI", 11, "bold"),
-            command=self.iniciar_consulta_migo
-        )
-        self.btn_consultar_migo.pack(side="left", padx=4)
+        self.entry_ordem.pack(side="left", padx=(0, 15))
 
         self.btn_completo = ctk.CTkButton(
-            f_in,
-            text="⚡ IW39 ➡️ MIGO",
-            width=135,
+            f_in1,
+            text="⚡ Consultar (IW39 ➡️ MIGO)",
+            width=180,
             height=28,
             font=("Segoe UI", 11, "bold"),
             fg_color="#059669",
             hover_color="#047857",
             command=self.iniciar_fluxo_completo
         )
-        self.btn_completo.pack(side="left", padx=4)
+        self.btn_completo.pack(side="left", padx=3)
 
-        self.btn_varrer_todas = ctk.CTkButton(
-            f_in,
-            text="🌐 Varrer Todas (01 a 08)",
-            width=165,
+        self.btn_buscar_ordem = ctk.CTkButton(
+            f_in1,
+            text="🔎 1. Buscar Ordem",
+            width=135,
             height=28,
-            font=("Segoe UI", 11, "bold"),
-            command=self.iniciar_varredura_todas
+            font=("Segoe UI", 11),
+            command=self.iniciar_busca_ordem_iw39
         )
-        self.btn_varrer_todas.pack(side="left", padx=4)
+        self.btn_buscar_ordem.pack(side="left", padx=3)
+
+        self.btn_consultar_migo = ctk.CTkButton(
+            f_in1,
+            text="📦 2. Consultar MIGO",
+            width=140,
+            height=28,
+            font=("Segoe UI", 11),
+            command=self.iniciar_consulta_migo
+        )
+        self.btn_consultar_migo.pack(side="left", padx=3)
 
         self.btn_abrir_sap = ctk.CTkButton(
-            f_in,
+            f_in1,
             text="🖥️ Abrir no SAP",
-            width=120,
+            width=115,
             height=28,
             font=("Segoe UI", 11),
             command=self.abrir_migo_sap_gui
         )
-        self.btn_abrir_sap.pack(side="left", padx=4)
+        self.btn_abrir_sap.pack(side="left", padx=3)
+
+        # Linha 2: Consulta em Faixa (Opção de X a X)
+        f_in2 = ctk.CTkFrame(self.frame_inputs, fg_color="transparent")
+        f_in2.pack(fill="x", padx=15, pady=(2, 8))
+
+        lbl_faixa = ctk.CTkLabel(f_in2, text="Opção em Faixa (X a X):", font=("Segoe UI", 11, "bold"))
+        lbl_faixa.pack(side="left", padx=(0, 8))
+
+        lbl_de = ctk.CTkLabel(f_in2, text="De:", font=("Segoe UI", 11))
+        lbl_de.pack(side="left", padx=(0, 4))
+
+        self.combo_de = ctk.CTkComboBox(
+            f_in2,
+            values=EQUIPES_CLANDESTINAS,
+            width=95,
+            height=26,
+            font=("Segoe UI", 11)
+        )
+        self.combo_de.set("RCL001")
+        self.combo_de.pack(side="left", padx=(0, 10))
+
+        lbl_ate = ctk.CTkLabel(f_in2, text="Até:", font=("Segoe UI", 11))
+        lbl_ate.pack(side="left", padx=(0, 4))
+
+        self.combo_ate = ctk.CTkComboBox(
+            f_in2,
+            values=EQUIPES_CLANDESTINAS,
+            width=95,
+            height=26,
+            font=("Segoe UI", 11)
+        )
+        self.combo_ate.set("RCL008")
+        self.combo_ate.pack(side="left", padx=(0, 15))
+
+        self.btn_varrer_faixa = ctk.CTkButton(
+            f_in2,
+            text="🌐 Consultar Faixa (X a X)",
+            width=175,
+            height=26,
+            font=("Segoe UI", 11, "bold"),
+            command=self.iniciar_varredura_faixa
+        )
+        self.btn_varrer_faixa.pack(side="left", padx=4)
+
+        self.btn_atalho_todas = ctk.CTkButton(
+            f_in2,
+            text="Todas (01 a 08)",
+            width=115,
+            height=26,
+            font=("Segoe UI", 10),
+            command=self._selecionar_todas_faixa
+        )
+        self.btn_atalho_todas.pack(side="left", padx=4)
 
         # 3. CORPO CENTRAL: TABELA E TERMINAL DE LOG
         self.frame_conteudo = ctk.CTkFrame(self.parent_frame, corner_radius=8)
@@ -335,12 +377,15 @@ class AbaConsultarMigo:
         self.entry_ordem.configure(fg_color=c["input"], text_color=c["texto"], border_color=c["accent"])
         self.combo_equipe.configure(fg_color=c["input"], text_color=c["texto"])
 
-        self.btn_buscar_ordem.configure(fg_color=c["accent"], hover_color=c["hover"], text_color="white")
-        self.btn_consultar_migo.configure(fg_color=c["accent"], hover_color=c["hover"], text_color="white")
-        self.btn_varrer_todas.configure(fg_color=c["input"], hover_color=c["hover"], text_color=c["texto"])
+        self.btn_buscar_ordem.configure(fg_color=c["input"], hover_color=c["hover"], text_color=c["texto"])
+        self.btn_consultar_migo.configure(fg_color=c["input"], hover_color=c["hover"], text_color=c["texto"])
+        self.btn_varrer_faixa.configure(fg_color=c["accent"], hover_color=c["hover"], text_color="white")
+        self.btn_atalho_todas.configure(fg_color=c["input"], hover_color=c["hover"], text_color=c["texto"])
         self.btn_abrir_sap.configure(fg_color=c["input"], hover_color=c["hover"], text_color=c["texto"])
         self.btn_copiar_tab.configure(fg_color=c["accent"], hover_color=c["hover"], text_color="white")
         self.btn_limpar_tab.configure(fg_color=c["input"], hover_color=c["hover"], text_color=c["texto"])
+        self.combo_de.configure(fg_color=c["input"], text_color=c["texto"])
+        self.combo_ate.configure(fg_color=c["input"], text_color=c["texto"])
 
         self._ao_mudar_combo(self.combo_equipe.get())
 
@@ -400,7 +445,8 @@ class AbaConsultarMigo:
         self.btn_buscar_ordem.configure(state=state)
         self.btn_consultar_migo.configure(state=state)
         self.btn_completo.configure(state=state)
-        self.btn_varrer_todas.configure(state=state)
+        self.btn_varrer_faixa.configure(state=state)
+        self.btn_atalho_todas.configure(state=state)
         self.btn_abrir_sap.configure(state=state)
 
     def iniciar_busca_ordem_iw39(self):
@@ -532,8 +578,26 @@ class AbaConsultarMigo:
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def iniciar_varredura_todas(self):
-        """Varre todas as equipes de RCL001 até RCL008 consultando IW39 e MIGO."""
+    def _selecionar_todas_faixa(self):
+        self.combo_de.set("RCL001")
+        self.combo_ate.set("RCL008")
+        self.iniciar_varredura_faixa()
+
+    def obter_faixa_equipes(self):
+        de = self.combo_de.get().strip().upper()
+        ate = self.combo_ate.get().strip().upper()
+        try:
+            i1 = EQUIPES_CLANDESTINAS.index(de)
+            i2 = EQUIPES_CLANDESTINAS.index(ate)
+            if i1 <= i2:
+                return EQUIPES_CLANDESTINAS[i1 : i2 + 1]
+            else:
+                return EQUIPES_CLANDESTINAS[i2 : i1 + 1]
+        except ValueError:
+            return [de]
+
+    def iniciar_varredura_faixa(self):
+        """Varre a faixa selecionada de equipes (De X até X) consultando IW39 e MIGO."""
         if self.executando:
             messagebox.showwarning("Aviso", "Já existe uma consulta SAP em execução.")
             return
@@ -542,22 +606,25 @@ class AbaConsultarMigo:
             messagebox.showerror("SAP Fechado", "O SAP precisa estar aberto com uma sessão ativa.")
             return
 
-        if not messagebox.askyesno("Varredura Geral", "Deseja consultar todas as equipes de RCL001 a RCL008 na IW39 e MIGO?"):
+        equipes_alvo = self.obter_faixa_equipes()
+        texto_faixa = f"{equipes_alvo[0]} a {equipes_alvo[-1]}" if len(equipes_alvo) > 1 else equipes_alvo[0]
+
+        if not messagebox.askyesno("Consulta em Faixa", f"Deseja consultar a faixa ({texto_faixa}) com {len(equipes_alvo)} equipe(s) na IW39 e MIGO?"):
             return
 
         self.executando = True
         self._travar_botoes(True)
         self.limpar_tabela()
         self._log("\n🌐 ========================================================")
-        self._log("🌐 INICIANDO VARREDURA GERAL DE CLANDESTINAS (RCL001 a RCL008)")
+        self._log(f"🌐 INICIANDO CONSULTA EM FAIXA: {texto_faixa} ({len(equipes_alvo)} equipes)")
         self._log("🌐 ========================================================")
 
         def _worker():
             set_sap_ocupado(True)
             try:
-                for equipe in EQUIPES_CLANDESTINAS:
+                for equipe in equipes_alvo:
                     self._log_threadsafe(f"\n🔎 [{equipe}] Consultando IW39...")
-                    self._status_threadsafe(f"Varredura: {equipe}...")
+                    self._status_threadsafe(f"Faixa: {equipe}...")
                     try:
                         ordem = self._sap_buscar_ordem_iw39(equipe)
                         if not ordem:
@@ -572,8 +639,8 @@ class AbaConsultarMigo:
                         self._log_threadsafe(f"  ↳ [{equipe}] Falha: {err}")
                     time.sleep(0.5)
 
-                self._log_threadsafe("\n🏁 Varredura de todas as clandestinas concluída!")
-                self._status_threadsafe("Varredura concluída!")
+                self._log_threadsafe(f"\n🏁 Consulta da faixa ({texto_faixa}) concluída!")
+                self._status_threadsafe("Consulta concluída!")
                 play_sound("done")
             finally:
                 set_sap_ocupado(False)
