@@ -39,11 +39,64 @@ def obter_caminho_saplogon():
         return no_path
     return None
 
+def obter_sessao_ativa_sap():
+    """Busca a sessão ativa do SAP GUI de forma resiliente."""
+    try:
+        pythoncom.CoInitialize()
+        SapGuiAuto = win32com.client.GetObject("SAPGUI")
+        if not SapGuiAuto:
+            return None
+        app = getattr(SapGuiAuto, "GetScriptingEngine", None)
+        if callable(app):
+            app = app()
+        if not app:
+            return None
+
+        # 1. Tenta ActiveSession direto do Application
+        try:
+            act = getattr(app, "ActiveSession", None)
+            if act:
+                return act
+        except Exception:
+            pass
+
+        # 2. Varre todas as conexões e sessões
+        try:
+            conns_count = getattr(app.Children, "Count", 0)
+            for i in range(conns_count):
+                conn = app.Children(i)
+                if not conn:
+                    continue
+                # Tenta ActiveSession da conexão
+                try:
+                    conn_act = getattr(conn, "ActiveSession", None)
+                    if conn_act:
+                        return conn_act
+                except Exception:
+                    pass
+
+                # Varre filhos da conexão
+                sess_count = getattr(conn.Children, "Count", 0)
+                for j in range(sess_count):
+                    sess = conn.Children(j)
+                    if sess:
+                        return sess
+        except Exception:
+            pass
+
+        return None
+    except Exception:
+        return None
+
 def verificar_sap_aberto():
     try:
         pythoncom.CoInitialize()
         SapGuiAuto = win32com.client.GetObject("SAPGUI")
         if SapGuiAuto:
+            # Se tem sessão ativa ou objeto SAPGUI válido
+            sess = obter_sessao_ativa_sap()
+            if sess:
+                return True
             return True
     except Exception:
         pass
@@ -88,21 +141,30 @@ def obter_info_sap_atual():
         SapGuiAuto = win32com.client.GetObject("SAPGUI")
         if not SapGuiAuto:
             return "SAP: desconectado"
-        app = SapGuiAuto.GetScriptingEngine
-        if not app or not hasattr(app, "Children") or app.Children.Count == 0:
+        app = getattr(SapGuiAuto, "GetScriptingEngine", None)
+        if callable(app):
+            app = app()
+        if not app:
+            return "SAP: desconectado"
+
+        session = obter_sessao_ativa_sap()
+        if not session:
+            try:
+                cnt = getattr(app.Children, "Count", 0)
+                if cnt > 0:
+                    return f"SAP: conectado ({cnt} conexões - aguardando login/sessão)"
+            except Exception:
+                pass
             return "SAP: aberto (sem sessão ativa)"
-        connection = app.Children(0)
-        if not connection or connection.Children.Count == 0:
-            return "SAP: aberto (sem sessão ativa)"
-        session = connection.Children(0)
+
         info = session.Info
         sistema = getattr(info, "SystemName", "") or "SAP"
         cliente = getattr(info, "Client", "") or "-"
         usuario = getattr(info, "User", "") or "-"
         transacao = getattr(info, "Transaction", "") or "-"
         return f"SAP: {sistema} | Cliente {cliente} | Usuário {usuario} | Tx {transacao}"
-    except Exception:
-        return "SAP: desconectado"
+    except Exception as e:
+        return f"SAP: erro ({e})"
 
 def consultar_info_sap_async(callback, widget_ref=None):
     """Executa a consulta do SAP em uma thread em background e retorna o resultado para a thread principal de forma segura."""

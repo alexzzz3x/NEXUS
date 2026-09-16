@@ -57,6 +57,7 @@ mudanca_recurso_view = None
 dashboard_view = None
 fichas_view = None
 plataforma_view = None
+controle_material_view = None
 
 def carregar_tema_salvo():
     if os.path.exists(CONFIG_FILE):
@@ -80,14 +81,35 @@ def salvar_tema_atual(tema_nome):
 def obter_tema_atual():
     return combo_temas.get()
 
+_icon_handles = []
+
 def aplicar_icone_janela(janela):
+    global _icon_handles
     try:
         caminho_ico = obter_caminho_recurso("assets", "Nexus.ico")
         if not os.path.exists(caminho_ico):
             caminho_ico = obter_caminho_recurso("assets", "eclipse.ico")
+        
+        if not os.path.exists(caminho_ico):
+            return
+
         janela.iconbitmap(caminho_ico)
         
-        # Garante nitidez máxima na barra de tarefas do Windows via WM_SETICON nativo
+        # Carrega resoluções via iconphoto do Tkinter
+        try:
+            from PIL import Image, ImageTk
+            photo_imgs = []
+            for s in [256, 64, 48, 32, 24, 16]:
+                caminho_frame = obter_caminho_recurso("assets", f"sharp_frame_{s}.png")
+                if os.path.exists(caminho_frame):
+                    photo_imgs.append(ImageTk.PhotoImage(Image.open(caminho_frame)))
+            if photo_imgs:
+                janela.iconphoto(True, *photo_imgs)
+                janela._icon_photos_ref = photo_imgs
+        except Exception:
+            pass
+
+        # Garante nitidez máxima na barra de tarefas e título do Windows via WM_SETICON nativo
         if os.name == "nt":
             import ctypes
             hwnd = janela.winfo_id()
@@ -96,10 +118,31 @@ def aplicar_icone_janela(janela):
             WM_SETICON = 0x80
             ICON_SMALL = 0
             ICON_BIG = 1
-            h_icon = ctypes.windll.user32.LoadImageW(None, os.path.abspath(caminho_ico), IMAGE_ICON, 0, 0, LR_LOADFROMFILE)
-            if h_icon:
-                ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_BIG, h_icon)
-                ctypes.windll.user32.SendMessageW(hwnd, WM_SETICON, ICON_SMALL, h_icon)
+            SM_CXICON = 11
+            SM_CYICON = 12
+            SM_CXSMICON = 49
+            SM_CYSMICON = 50
+
+            cx_big = ctypes.windll.user32.GetSystemMetrics(SM_CXICON)
+            cy_big = ctypes.windll.user32.GetSystemMetrics(SM_CYICON)
+            cx_sm = ctypes.windll.user32.GetSystemMetrics(SM_CXSMICON)
+            cy_sm = ctypes.windll.user32.GetSystemMetrics(SM_CYSMICON)
+
+            h_big = ctypes.windll.user32.LoadImageW(None, os.path.abspath(caminho_ico), IMAGE_ICON, cx_big, cy_big, LR_LOADFROMFILE)
+            h_sm = ctypes.windll.user32.LoadImageW(None, os.path.abspath(caminho_ico), IMAGE_ICON, cx_sm, cy_sm, LR_LOADFROMFILE)
+
+            hwnd_root = ctypes.windll.user32.GetAncestor(hwnd, 2) or hwnd
+            hwnd_parent = ctypes.windll.user32.GetParent(hwnd) or hwnd
+            targets = set([hwnd, hwnd_root, hwnd_parent])
+
+            if h_big:
+                for target in targets:
+                    ctypes.windll.user32.SendMessageW(target, WM_SETICON, ICON_BIG, h_big)
+                _icon_handles.append(h_big)
+            if h_sm:
+                for target in targets:
+                    ctypes.windll.user32.SendMessageW(target, WM_SETICON, ICON_SMALL, h_sm)
+                _icon_handles.append(h_sm)
     except Exception:
         pass
 
@@ -188,7 +231,7 @@ def atualizar_info_sap():
 # ================== MAIN UI ==================
 try:
     import ctypes
-    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("nexus.sap.nucleo.v21")
+    ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("nexus.sap.nucleo.v22")
 except Exception:
     pass
 
@@ -254,11 +297,11 @@ if not os.path.exists(caminho_img):
 try:
     from PIL import Image
     pil_img = Image.open(caminho_img)
-    img_logo = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(46, 46))
+    img_logo = ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=(48, 48))
     lbl_logo = ctk.CTkLabel(frame_topo, image=img_logo, text="")
 except Exception:
     lbl_logo = ctk.CTkLabel(frame_topo, text="⚡", font=("Segoe UI", 20, "bold"))
-lbl_logo.pack(side=tk.LEFT, padx=(15, 8), pady=7)
+lbl_logo.pack(side=tk.LEFT, padx=(15, 8), pady=6)
 
 lbl_title = ctk.CTkLabel(frame_topo, text="N.E.X.U.S", font=("Segoe UI", 20, "bold"))
 lbl_title.pack(side=tk.LEFT, padx=(0, 6))
@@ -286,6 +329,7 @@ tab_name_zm02 = "⚙️ Entrada ZM02"
 tab_name_conferencia = "📦 Conferencia"
 tab_name_fichas = "📋 Fichas"
 tab_name_plataforma = "📈 Relatório Plataforma"
+tab_name_controle_mat = "📦 Controle Material"
 
 tab_home = notebook.add(tab_name_home)
 tab_gerador = notebook.add(tab_name_gerador)
@@ -299,6 +343,7 @@ tab_conferencia = notebook.add(tab_name_conferencia)
 tab_zm02 = notebook.add(tab_name_zm02)
 tab_fichas = notebook.add(tab_name_fichas)
 tab_plataforma = notebook.add(tab_name_plataforma)
+tab_controle_mat = notebook.add(tab_name_controle_mat)
 
 # STATUS BAR
 bar_status = ctk.CTkFrame(root, height=30, corner_radius=0)
@@ -315,7 +360,7 @@ lbl_creditos.pack(side="right", padx=10, pady=2)
 
 # ================== INICIALIZAÇAO ASSÍNCRONA E NÃO-BLOQUEANTE DOS MÓDULOS ==================
 def inicializar_modulos():
-    global dashboard_view, etiquetas_view, extrator_view, sap_view, bandeirada_view, osme_view, transferenciaosme_view, conferencia_view, zm02_view, fichas_view
+    global dashboard_view, etiquetas_view, extrator_view, sap_view, bandeirada_view, osme_view, transferenciaosme_view, conferencia_view, zm02_view, fichas_view, controle_material_view
 
     # Importações pesadas só começam depois que o splash já foi desenhado.
     global construir_aba_sap, obter_info_sap_atual, consultar_info_sap_async
@@ -324,6 +369,7 @@ def inicializar_modulos():
     global construir_aba_extrair_osme, construir_aba_extrator, JanelaChat
     global construir_aba_zmcse003, construir_aba_transferencia_osme
     global construir_aba_mudanca_recurso, construir_aba_dashboard, construir_aba_fichas, construir_aba_plataforma
+    global construir_aba_controle_material
     from modulo_Sap import construir_aba_sap, obter_info_sap_atual, consultar_info_sap_async
     from modulo_bandeirada import construir_aba_bandeirada
     from modulo_conferencia import construir_aba_conferencia
@@ -337,6 +383,7 @@ def inicializar_modulos():
     from modulo_dashboard import construir_aba_dashboard
     from modulo_fichas import construir_aba_fichas
     from modulo_plataforma import construir_aba_plataforma
+    from modulo_controle_material import construir_aba_controle_material
 
     def etapa_1():
         global dashboard_view
@@ -391,14 +438,15 @@ def inicializar_modulos():
         root.after(10, etapa_6)
 
     def etapa_6():
-        global transferenciaosme_view, conferencia_view, zm02_view, mudanca_recurso_view
+        global transferenciaosme_view, conferencia_view, zm02_view, mudanca_recurso_view, controle_material_view
         splash_progress.set(0.95)
-        lbl_splash_loading.configure(text="Carregando Mudança de Recurso, ZM02 e Conferência...")
+        lbl_splash_loading.configure(text="Carregando Mudança de Recurso, ZM02, Conferência e Controle Material...")
         try:
             transferenciaosme_view = construir_aba_transferencia_osme(tab_transfosme, lbl_status, PALETAS, obter_tema_atual)
             mudanca_recurso_view = construir_aba_mudanca_recurso(tab_mudanca, lbl_status, PALETAS, obter_tema_atual)
             conferencia_view = construir_aba_conferencia(tab_conferencia, lbl_status, PALETAS, obter_tema_atual)
             zm02_view = construir_aba_zmcse003(tab_zm02, PALETAS, obter_tema_atual)
+            controle_material_view = construir_aba_controle_material(tab_controle_mat, lbl_status, PALETAS, obter_tema_atual)
         except Exception as e:
             log_error(f"Erro ao carregar módulos finais: {e}")
         root.after(10, etapa_final)
@@ -413,6 +461,7 @@ def inicializar_modulos():
             except Exception:
                 pass
             root.deiconify()
+            aplicar_icone_janela(root)
             root.lift()
             show_toast(root, "N.E.X.U.S pronto!", duration=2000, type="success")
             play_sound("done")
