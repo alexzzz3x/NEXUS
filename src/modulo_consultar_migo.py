@@ -459,7 +459,7 @@ class AbaConsultarMigo:
             messagebox.showwarning("Aviso", "Selecione uma equipe clandestina.")
             return
 
-        if not verificar_sap_aberto():
+        if not self._verificar_sap_conectado():
             messagebox.showerror("SAP Fechado", "O SAP precisa estar aberto com uma sessão ativa.")
             return
 
@@ -502,7 +502,7 @@ class AbaConsultarMigo:
             messagebox.showwarning("Aviso", "Informe o número da Ordem (ou busque na IW39 primeiro).")
             return
 
-        if not verificar_sap_aberto():
+        if not self._verificar_sap_conectado():
             messagebox.showerror("SAP Fechado", "O SAP precisa estar aberto com uma sessão ativa.")
             return
 
@@ -540,7 +540,7 @@ class AbaConsultarMigo:
             messagebox.showwarning("Aviso", "Selecione uma equipe clandestina.")
             return
 
-        if not verificar_sap_aberto():
+        if not self._verificar_sap_conectado():
             messagebox.showerror("SAP Fechado", "O SAP precisa estar aberto com uma sessão ativa.")
             return
 
@@ -602,7 +602,7 @@ class AbaConsultarMigo:
             messagebox.showwarning("Aviso", "Já existe uma consulta SAP em execução.")
             return
 
-        if not verificar_sap_aberto():
+        if not self._verificar_sap_conectado():
             messagebox.showerror("SAP Fechado", "O SAP precisa estar aberto com uma sessão ativa.")
             return
 
@@ -656,46 +656,109 @@ class AbaConsultarMigo:
             messagebox.showwarning("Aviso", "Informe o número da Ordem para abrir no SAP.")
             return
 
-        if not verificar_sap_aberto():
+        if not self._verificar_sap_conectado():
             messagebox.showerror("SAP Fechado", "O SAP precisa estar aberto com uma sessão ativa.")
             return
 
-        try:
-            sessao = obter_sessao_ativa_sap()
-            if not sessao:
-                raise RuntimeError("Não foi possível obter a sessão ativa do SAP.")
+        self._log(f"\n🖥️ Abrindo Ordem {ordem} na MIGO no SAP GUI...")
+        vbs = f'''
+On Error Resume Next
+Dim SapGuiAuto, application, connection, session
+Set SapGuiAuto = GetObject("SAPGUI")
+If Err.Number <> 0 Or SapGuiAuto Is Nothing Then
+    WScript.Echo "ERRO:SAP_DESCONECTADO"
+    WScript.Quit 1
+End If
 
-            self._log(f"\n🖥️ Abrindo Ordem {ordem} na MIGO no SAP GUI...")
-            sessao.findById("wnd[0]/tbar[0]/okcd").Text = "/nMIGO"
-            sessao.findById("wnd[0]").sendVKey(0)
-            time.sleep(0.5)
+Set application = SapGuiAuto.GetScriptingEngine
+If Err.Number <> 0 Or application Is Nothing Then
+    WScript.Echo "ERRO:SCRIPTING_DESABILITADO"
+    WScript.Quit 1
+End If
 
-            # Define A07 (Saída) e R08 (Ordem)
-            try:
-                sessao.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION").Key = "A07"
-                sessao.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-REFDOC").Key = "R08"
-                sessao.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_FIRSTLINE:SAPLMIGO:0010/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2070/ctxtGODYNPRO-ORDER_NUMBER").Text = ordem
-                sessao.findById("wnd[0]").sendVKey(0)
-            except Exception:
-                sessao.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION").Key = "A07"
-                sessao.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-REFDOC").Key = "R08"
-                sessao.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0002/subSUB_FIRSTLINE:SAPLMIGO:0010/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2070/ctxtGODYNPRO-ORDER_NUMBER").Text = ordem
-                sessao.findById("wnd[0]").sendVKey(0)
+If application.Children.Count = 0 Then
+    WScript.Echo "ERRO:SEM_CONEXAO"
+    WScript.Quit 1
+End If
 
-            # Traz a janela do SAP para frente
-            try:
-                def enum_handler(hwnd, extra):
-                    if "SAP" in win32gui.GetWindowText(hwnd):
-                        win32gui.SetForegroundWindow(hwnd)
-                win32gui.EnumWindows(enum_handler, None)
-            except Exception:
-                pass
+Dim c, s, connCand, sessCand
+Set connection = Nothing
+Set session = Nothing
+For c = 0 To application.Children.Count - 1
+    Set connCand = application.Children(c)
+    If Not connCand Is Nothing Then
+        If connCand.Children.Count > 0 Then
+            For s = 0 To connCand.Children.Count - 1
+                Set sessCand = connCand.Children(s)
+                If Not sessCand Is Nothing Then
+                    Set connection = connCand
+                    Set session = sessCand
+                    Exit For
+                End If
+            Next
+        End If
+    End If
+    If Not session Is Nothing Then Exit For
+Next
 
+If session Is Nothing Then
+    WScript.Echo "ERRO:SEM_SESSAO"
+    WScript.Quit 1
+End If
+
+' Fechar eventuais popups residuais
+Dim p
+For p = 1 To 3
+    If session.Children.Count > 1 Then
+        On Error Resume Next
+        session.findById("wnd[1]/tbar[0]/btn[12]").press
+        If Err.Number <> 0 Then
+            Err.Clear
+            session.findById("wnd[1]").sendVKey 0
+        End If
+        WScript.Sleep 150
+    End If
+Next
+On Error GoTo 0
+
+Dim ordem
+ordem = "{ordem}"
+
+session.findById("wnd[0]/tbar[0]/btn[12]").press
+session.findById("wnd[0]/tbar[0]/okcd").text = "/nMIGO"
+session.findById("wnd[0]").sendVKey 0
+WScript.Sleep 400
+
+Dim subs, sub_idx
+subs = Array("0003", "0002")
+For Each sub_idx In subs
+    On Error Resume Next
+    session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:" & sub_idx & "/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION").key = "A07"
+    session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:" & sub_idx & "/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-REFDOC").key = "R08"
+    session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:" & sub_idx & "/subSUB_FIRSTLINE:SAPLMIGO:0010/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2070/ctxtGODYNPRO-ORDER_NUMBER").text = ordem
+    If Err.Number = 0 Then
+        session.findById("wnd[0]").sendVKey 0
+        Exit For
+    End If
+Next
+
+session.findById("wnd[0]").maximize
+WScript.Echo "OK"
+'''
+        rc, out, err = self._executar_script_vbs(vbs, timeout=30)
+        if rc == 0 and "OK" in out:
             self._log(f"🖥️ Tela da MIGO aberta com a ordem {ordem} no SAP.")
             show_toast(self.parent_frame, f"Ordem {ordem} carregada na MIGO no SAP!", duration=2000, type="success")
-        except Exception as e:
-            self._log(f"❌ Erro ao abrir MIGO no SAP: {e}")
-            messagebox.showerror("Erro SAP", str(e))
+        else:
+            msg_erro = err or out
+            if "ERRO:SAP_DESCONECTADO" in msg_erro:
+                msg_erro = "O SAP GUI está aberto, mas não possui conexão ativa com o sistema. Conecte no SAP Logon primeiro."
+            elif "ERRO:SEM_SESSAO" in msg_erro:
+                msg_erro = "Nenhuma sessão ativa aberta no SAP. Conecte ao ambiente no SAP Logon."
+            elif "ERRO:SCRIPTING_DESABILITADO" in msg_erro:
+                msg_erro = "Scripting do SAP GUI desabilitado nas Opções do SAP GUI."
+            self._log(f"❌ Erro ao abrir MIGO no SAP: {msg_erro}")
+            messagebox.showerror("Aviso SAP", f"Não foi possível abrir a MIGO no SAP GUI:\n{msg_erro}")
 
     def _inserir_itens_tabela(self, equipe, ordem, itens):
         for item in itens:
@@ -718,251 +781,403 @@ class AbaConsultarMigo:
         self.lbl_qtd_itens.configure(text=f"Itens Encontrados na MIGO: {total}")
 
     # =========================================================================
-    # FUNÇÕES DE AUTOMAÇÃO SAP COM
+    # FUNÇÕES DE EXECUÇÃO VIA CSCRIPT / VBSCRIPT NATIVO (100% COMPATÍVEL COM SAP)
     # =========================================================================
 
-    def _sap_buscar_ordem_iw39(self, equipe):
-        pythoncom.CoInitialize()
-        sessao = obter_sessao_ativa_sap()
-        if not sessao:
-            raise RuntimeError("Não foi possível conectar ao SAP GUI.")
-
-        # 1. Navega para IW39
-        sessao.findById("wnd[0]/tbar[0]/btn[12]").press()
-        sessao.findById("wnd[0]/tbar[0]/okcd").Text = "/nIW39"
-        sessao.findById("wnd[0]").sendVKey(0)
-        time.sleep(0.3)
-
-        # 2. Configura Parceiro Z2 e código da equipe
+    def _executar_script_vbs(self, conteudo, timeout=120):
+        import subprocess, tempfile
+        fd, caminho = tempfile.mkstemp(prefix="nexus_migo_", suffix=".vbs", text=True)
         try:
-            sessao.findById("wnd[0]/usr/cmbDY_PARVW").Key = "Z2"
-            campo_eq = sessao.findById("wnd[0]/usr/ctxtDY_PARNR")
-            campo_eq.Text = equipe
-            campo_eq.CaretPosition = len(equipe)
-            sessao.findById("wnd[0]").sendVKey(0)
-        except Exception as e:
-            raise RuntimeError(f"Falha ao preencher parâmetros do parceiro na IW39: {e}")
+            with os.fdopen(fd, "w", encoding="cp1252", errors="ignore") as f:
+                f.write(conteudo)
+            creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+            
+            cscripts = []
+            cscript_32 = r"C:\Windows\SysWOW64\cscript.exe"
+            if os.path.exists(cscript_32):
+                cscripts.append(cscript_32)
+            cscripts.append("cscript.exe")
 
-        # 3. Filtro de Status: Apenas Ativas (Pendente e Em Processamento)
-        status_chk = [
-            ("wnd[0]/usr/chkDY_OFN", True),   # Pendente
-            ("wnd[0]/usr/chkDY_IAR", True),   # Em processamento
-            ("wnd[0]/usr/chkDY_MAB", False),  # Encerrado
-            ("wnd[0]/usr/chkDY_ABG", False),  # Encerrado alternativo
-            ("wnd[0]/usr/chkDY_HIS", False),  # Histórico
-        ]
-        for chk_id, valor in status_chk:
-            try:
-                ctrl = sessao.findById(chk_id, False)
-                if ctrl:
-                    ctrl.Selected = valor
-            except Exception:
-                pass
-
-        # 4. Executa F8
-        sessao.findById("wnd[0]/tbar[1]/btn[8]").press()
-        time.sleep(0.8)
-
-        # Fecha popup informativo se surgir
-        try:
-            if sessao.findById("wnd[1]", False):
-                sessao.findById("wnd[1]").sendVKey(0)
-                time.sleep(0.3)
-        except Exception:
-            pass
-
-        ordem_encontrada = ""
-
-        # Caso A: Grade ALV (lista de ordens)
-        try:
-            grid = sessao.findById("wnd[0]/usr/cntlGRID1/shellcont/shell", False)
-            if grid:
+            last_rc, last_out, last_err = -1, "", ""
+            for cs in cscripts:
                 try:
-                    # Tenta ordenar decrescente pela data mais recente
-                    grid.setCurrentCell(-1, "GSTRP")
-                    grid.selectColumn("GSTRP")
-                    sessao.findById("wnd[0]/tbar[1]/btn[40]").press()
-                    time.sleep(0.3)
-                    grid = sessao.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
-                except Exception:
-                    pass
+                    res = subprocess.run(
+                        [cs, "//nologo", caminho],
+                        capture_output=True, text=True, timeout=timeout, creationflags=creationflags
+                    )
+                    last_rc, last_out, last_err = res.returncode, res.stdout or "", res.stderr or ""
+                    # Se não deu erro de Syntax/GetObject, aceita a execução
+                    if "800401E4" not in last_out and "Sintaxe inválida" not in last_out:
+                        return last_rc, last_out, last_err
+                except Exception as e:
+                    last_err = str(e)
+                    continue
 
-                total_linhas = int(grid.RowCount)
-                for r in range(total_linhas):
-                    val_ord = str(grid.getCellValue(r, "AUFNR")).strip()
-                    val_rec = str(grid.getCellValue(r, "PARNR")).strip().upper()
-                    if val_ord:
-                        if not val_rec or val_rec == equipe:
-                            ordem_encontrada = val_ord
-                            break
-
-                # Retorna da grade
-                sessao.findById("wnd[0]/tbar[0]/btn[15]").press()
-                sessao.findById("wnd[0]/tbar[0]/btn[15]").press()
-        except Exception:
-            pass
-
-        # Caso B: Abre diretamente no detalhe de uma única ordem
-        if not ordem_encontrada:
+            return last_rc, last_out, last_err
+        except Exception as e:
+            return -1, "", str(e)
+        finally:
             try:
-                txt_ord = sessao.findById(
-                    "wnd[0]/usr/subSUB_ALL:SAPLCOIH:3001/ssubSUB_LEVEL:SAPLCOIH:1100/subSUB_KOPF:SAPLCOIH:1102/txtCAUFVD-AUFNR",
-                    False
-                )
-                if txt_ord:
-                    ordem_encontrada = str(txt_ord.Text).strip()
-                    sessao.findById("wnd[0]/tbar[0]/btn[15]").press()
-                    sessao.findById("wnd[0]/tbar[0]/btn[15]").press()
-            except Exception:
+                if os.path.exists(caminho):
+                    os.remove(caminho)
+            except OSError:
                 pass
 
-        return ordem_encontrada
+    def _verificar_sap_conectado(self):
+        """Verifica se o SAP GUI está aberto e acessível."""
+        return verificar_sap_aberto()
+
+    def _sap_buscar_ordem_iw39(self, equipe):
+        vbs = f'''
+On Error Resume Next
+Dim SapGuiAuto, application, connection, session
+Set SapGuiAuto = GetObject("SAPGUI")
+If Err.Number <> 0 Or SapGuiAuto Is Nothing Then
+    WScript.Echo "ERRO:SAP_DESCONECTADO"
+    WScript.Quit 1
+End If
+
+Set application = SapGuiAuto.GetScriptingEngine
+If Err.Number <> 0 Or application Is Nothing Then
+    WScript.Echo "ERRO:SCRIPTING_DESABILITADO"
+    WScript.Quit 1
+End If
+
+If application.Children.Count = 0 Then
+    WScript.Echo "ERRO:SEM_CONEXAO"
+    WScript.Quit 1
+End If
+
+Dim c, s, connCand, sessCand
+Set connection = Nothing
+Set session = Nothing
+For c = 0 To application.Children.Count - 1
+    Set connCand = application.Children(c)
+    If Not connCand Is Nothing Then
+        If connCand.Children.Count > 0 Then
+            For s = 0 To connCand.Children.Count - 1
+                Set sessCand = connCand.Children(s)
+                If Not sessCand Is Nothing Then
+                    Set connection = connCand
+                    Set session = sessCand
+                    Exit For
+                End If
+            Next
+        End If
+    End If
+    If Not session Is Nothing Then Exit For
+Next
+
+If session Is Nothing Then
+    WScript.Echo "ERRO:SEM_SESSAO"
+    WScript.Quit 1
+End If
+
+' Fechar eventuais popups residuais
+Dim p
+For p = 1 To 3
+    If session.Children.Count > 1 Then
+        On Error Resume Next
+        session.findById("wnd[1]/tbar[0]/btn[12]").press
+        If Err.Number <> 0 Then
+            Err.Clear
+            session.findById("wnd[1]").sendVKey 0
+        End If
+        WScript.Sleep 150
+    End If
+Next
+On Error GoTo 0
+
+Dim recurso
+recurso = "{equipe}"
+
+' 1. Navega para IW39
+On Error Resume Next
+session.findById("wnd[0]/tbar[0]/btn[12]").press
+session.findById("wnd[0]/tbar[0]/okcd").text = "/nIW39"
+session.findById("wnd[0]").sendVKey 0
+WScript.Sleep 400
+
+' 2. Preenche Parceiro Z2 e codigo da equipe
+session.findById("wnd[0]/usr/cmbDY_PARVW").key = "Z2"
+session.findById("wnd[0]/usr/ctxtDY_PARNR").text = recurso
+session.findById("wnd[0]/usr/ctxtDY_PARNR").setFocus
+session.findById("wnd[0]/usr/ctxtDY_PARNR").caretPosition = Len(recurso)
+session.findById("wnd[0]").sendVKey 0
+WScript.Sleep 200
+
+' 3. Filtro de Status: Apenas Ativas (Pendente e Em Processamento)
+session.findById("wnd[0]/usr/chkDY_OFN").selected = True
+session.findById("wnd[0]/usr/chkDY_IAR").selected = True
+session.findById("wnd[0]/usr/chkDY_MAB").selected = False
+session.findById("wnd[0]/usr/chkDY_ABG").selected = False
+session.findById("wnd[0]/usr/chkDY_HIS").selected = False
+
+' 4. Executa F8
+session.findById("wnd[0]/tbar[1]/btn[8]").press
+WScript.Sleep 700
+
+' Fecha popup informativo se surgir
+If session.Children.Count > 1 Then
+    session.findById("wnd[1]").sendVKey 0
+    WScript.Sleep 200
+End If
+
+Dim ordemEncontrada
+ordemEncontrada = ""
+
+' Caso A: Grade ALV
+Dim grid
+Set grid = Nothing
+On Error Resume Next
+Set grid = session.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
+On Error GoTo 0
+
+If Not grid Is Nothing Then
+    On Error Resume Next
+    grid.setCurrentCell -1, "GSTRP"
+    grid.selectColumn "GSTRP"
+    If Err.Number <> 0 Then
+        Err.Clear
+        grid.setCurrentCell -1, "GLTRP"
+        grid.selectColumn "GLTRP"
+    End If
+    session.findById("wnd[0]/tbar[1]/btn[40]").press
+    WScript.Sleep 300
+    Set grid = session.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
+    ordemEncontrada = Trim(grid.GetCellValue(0, "AUFNR"))
+    If ordemEncontrada = "" Then
+        ordemEncontrada = Trim(grid.GetCellValue(0, "ORDERID"))
+    End If
+    On Error GoTo 0
+    session.findById("wnd[0]/tbar[0]/btn[15]").press
+    WScript.Sleep 200
+    session.findById("wnd[0]/tbar[0]/btn[15]").press
+End If
+
+' Caso B: Detalhe individual
+If ordemEncontrada = "" Then
+    On Error Resume Next
+    Dim txtOrd
+    Set txtOrd = session.findById("wnd[0]/usr/subSUB_ALL:SAPLCOIH:3001/ssubSUB_LEVEL:SAPLCOIH:1100/subSUB_KOPF:SAPLCOIH:1102/txtCAUFVD-AUFNR")
+    If txtOrd Is Nothing Then
+        Set txtOrd = session.findById("wnd[0]/usr/subSUB_ALL:SAPLCOIH:3001/ssubSUB_LEVEL:SAPLCOIH:1100/subSUB_KOPF:SAPLCOIH:1101/txtCAUFVD-AUFNR")
+    End If
+    If txtOrd Is Nothing Then
+        Set txtOrd = session.findById("wnd[0]/usr/txtCAUFVD-AUFNR")
+    End If
+    If Not txtOrd Is Nothing Then
+        ordemEncontrada = Trim(txtOrd.text)
+        session.findById("wnd[0]/tbar[0]/btn[15]").press
+        WScript.Sleep 200
+        session.findById("wnd[0]/tbar[0]/btn[15]").press
+    End If
+    On Error GoTo 0
+End If
+
+If ordemEncontrada <> "" Then
+    WScript.Echo "ORDEM_ENCONTRADA:" & ordemEncontrada
+Else
+    WScript.Echo "NENHUMA_ORDEM"
+End If
+'''
+        rc, out, err = self._executar_script_vbs(vbs, timeout=60)
+        for linha in out.splitlines():
+            linha = linha.strip()
+            if linha.startswith("ORDEM_ENCONTRADA:"):
+                return linha.split(":", 1)[1].strip()
+            elif "ERRO:SAP_DESCONECTADO" in linha or "ERRO:SAP_FECHADO" in linha:
+                raise RuntimeError("O SAP GUI está aberto, mas não possui conexão ativa com o sistema. Conecte ao ambiente (ex: Produção) antes de consultar.")
+            elif "ERRO:SEM_SESSAO" in linha or "ERRO:SEM_CONEXAO" in linha:
+                raise RuntimeError("Nenhuma sessão ativa aberta no SAP. Conecte ao ambiente no SAP Logon.")
+            elif "ERRO:SCRIPTING_DESABILITADO" in linha or "ERRO:SCRIPTING_ENGINE" in linha:
+                raise RuntimeError("Scripting do SAP GUI está desabilitado. Habilite nas Opções do SAP GUI (Acessibilidade e Scripting).")
+            elif "ERRO:" in linha:
+                raise RuntimeError(linha)
+        return ""
 
     def _sap_consultar_itens_migo(self, ordem):
-        """Acessa a MIGO com a Ordem (A07/R08) e varre os itens e materiais."""
-        pythoncom.CoInitialize()
-        sessao = obter_sessao_ativa_sap()
-        if not sessao:
-            raise RuntimeError("Não foi possível conectar ao SAP GUI.")
+        vbs = f'''
+On Error Resume Next
+Dim SapGuiAuto, application, connection, session
+Set SapGuiAuto = GetObject("SAPGUI")
+If Err.Number <> 0 Or SapGuiAuto Is Nothing Then
+    WScript.Echo "ERRO:SAP_DESCONECTADO"
+    WScript.Quit 1
+End If
 
-        sessao.findById("wnd[0]/tbar[0]/btn[12]").press()
-        sessao.findById("wnd[0]/tbar[0]/okcd").Text = "/nMIGO"
-        sessao.findById("wnd[0]").sendVKey(0)
-        time.sleep(0.4)
+Set application = SapGuiAuto.GetScriptingEngine
+If Err.Number <> 0 Or application Is Nothing Then
+    WScript.Echo "ERRO:SCRIPTING_DESABILITADO"
+    WScript.Quit 1
+End If
 
-        # Configura A07 (Saída) e R08 (Ordem)
-        for sub in ("0003", "0002"):
-            try:
-                sessao.findById(f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION").Key = "A07"
-                sessao.findById(f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-REFDOC").Key = "R08"
-                sessao.findById(f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_FIRSTLINE:SAPLMIGO:0010/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2070/ctxtGODYNPRO-ORDER_NUMBER").Text = str(ordem)
-                sessao.findById("wnd[0]").sendVKey(0)
-                break
-            except Exception:
-                continue
+If application.Children.Count = 0 Then
+    WScript.Echo "ERRO:SEM_CONEXAO"
+    WScript.Quit 1
+End If
 
-        time.sleep(0.8)
+Dim c, s, connCand, sessCand
+Set connection = Nothing
+Set session = Nothing
+For c = 0 To application.Children.Count - 1
+    Set connCand = application.Children(c)
+    If Not connCand Is Nothing Then
+        If connCand.Children.Count > 0 Then
+            For s = 0 To connCand.Children.Count - 1
+                Set sessCand = connCand.Children(s)
+                If Not sessCand Is Nothing Then
+                    Set connection = connCand
+                    Set session = sessCand
+                    Exit For
+                End If
+            Next
+        End If
+    End If
+    If Not session Is Nothing Then Exit For
+Next
 
-        # Trata popups de advertência da MIGO
-        try:
-            for _ in range(3):
-                if sessao.findById("wnd[1]", False):
-                    sessao.findById("wnd[1]").sendVKey(0)
-                    time.sleep(0.3)
-        except Exception:
-            pass
+If session Is Nothing Then
+    WScript.Echo "ERRO:SEM_SESSAO"
+    WScript.Quit 1
+End If
 
+' Fechar eventuais popups residuais
+Dim p
+For p = 1 To 3
+    If session.Children.Count > 1 Then
+        On Error Resume Next
+        session.findById("wnd[1]/tbar[0]/btn[12]").press
+        If Err.Number <> 0 Then
+            Err.Clear
+            session.findById("wnd[1]").sendVKey 0
+        End If
+        WScript.Sleep 150
+    End If
+Next
+On Error GoTo 0
+
+Dim ordem
+ordem = "{ordem}"
+
+' Navega para MIGO
+On Error Resume Next
+session.findById("wnd[0]/tbar[0]/btn[12]").press
+session.findById("wnd[0]/tbar[0]/okcd").text = "/nMIGO"
+session.findById("wnd[0]").sendVKey 0
+WScript.Sleep 500
+
+' Preenche A07 (Saida) e R08 (Ordem)
+Dim subs, sub_item
+subs = Array("0003", "0002")
+For Each sub_item In subs
+    Err.Clear
+    session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:" & sub_item & "/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-ACTION").key = "A07"
+    session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:" & sub_item & "/subSUB_FIRSTLINE:SAPLMIGO:0010/cmbGODYNPRO-REFDOC").key = "R08"
+    session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:" & sub_item & "/subSUB_FIRSTLINE:SAPLMIGO:0010/subSUB_FIRSTLINE_REFDOC:SAPLMIGO:2070/ctxtGODYNPRO-ORDER_NUMBER").text = ordem
+    If Err.Number = 0 Then
+        session.findById("wnd[0]").sendVKey 0
+        Exit For
+    End If
+Next
+
+WScript.Sleep 800
+
+' Fecha eventuais popups de advertencia
+For p = 1 To 3
+    If session.Children.Count > 1 Then
+        session.findById("wnd[1]").sendVKey 0
+        WScript.Sleep 200
+    End If
+Next
+
+' Localiza tabela de itens
+Dim tbl
+Set tbl = Nothing
+For Each sub_item In subs
+    Err.Clear
+    Set tbl = session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:" & sub_item & "/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM")
+    If Err.Number = 0 And Not tbl Is Nothing Then Exit For
+Next
+
+If Not tbl Is Nothing Then
+    Dim totalLinhas, r, maxRows
+    totalLinhas = tbl.RowCount
+    If totalLinhas > 50 Then maxRows = 50 Else maxRows = totalLinhas
+    If maxRows = 0 Then maxRows = tbl.VisibleRowCount
+
+    For r = 0 To maxRows - 1
+        On Error Resume Next
+        If r >= tbl.VisibleRowCount Then
+            tbl.VerticalScrollbar.Position = r
+        End If
+
+        Dim mat, desc, qtd, un, centro, dep
+        mat = ""
+        desc = ""
+        qtd = ""
+        un = ""
+        centro = ""
+        dep = ""
+
+        mat = Trim(tbl.GetCellValue(r, "MATNR"))
+        If mat = "" Then
+            mat = Trim(session.findById(tbl.Id & "/ctxtGOITEM-MATNR[1," & r & "]").text)
+        End If
+        If mat = "" Then
+            mat = Trim(session.findById(tbl.Id & "/txtGOITEM-MATNR[1," & r & "]").text)
+        End If
+
+        desc = Trim(tbl.GetCellValue(r, "MAKTX"))
+        qtd = Trim(tbl.GetCellValue(r, "ERFMG"))
+        un = Trim(tbl.GetCellValue(r, "ERFME"))
+        centro = Trim(tbl.GetCellValue(r, "NAME1"))
+        If centro = "" Then centro = Trim(tbl.GetCellValue(r, "WERKS"))
+        If centro = "" Then centro = "EMPR"
+
+        dep = Trim(tbl.GetCellValue(r, "LGORT"))
+        If dep = "" Then dep = Trim(tbl.GetCellValue(r, "LGOBE"))
+
+        If mat <> "" Or desc <> "" Or qtd <> "" Then
+            WScript.Echo "ITEM:" & (r + 1) & "|" & mat & "|" & desc & "|" & qtd & "|" & un & "|" & centro & "|" & dep
+        End If
+    Next
+Else
+    ' Caso de item unico detalhado
+    On Error Resume Next
+    Dim txtMat
+    Set txtMat = session.findById("wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_ITEMDETAIL:SAPLMIGO:0301/subSUB_DETAIL:SAPLMIGO:0300/tabsTS_GOITEM/tabpOK_GOITEM_MATERIAL/ssubSUB_TS_GOITEM_MATERIAL:SAPLMIGO:0310/ctxtGOITEM-MAKTX")
+    If Not txtMat Is Nothing Then
+        WScript.Echo "ITEM:1|Item Ordem|" & Trim(txtMat.text) & "|1|UN|EMPR|CL03"
+    End If
+End If
+
+WScript.Echo "FIM_MIGO"
+'''
+        rc, out, err = self._executar_script_vbs(vbs, timeout=60)
         itens = []
-
-        # Localiza a tabela de itens na MIGO
-        tbl = None
-        for sub in ("0003", "0002"):
-            tbl_cand = sessao.findById(
-                f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{sub}/subSUB_ITEMLIST:SAPLMIGO:0200/tblSAPLMIGOTV_GOITEM",
-                False
-            )
-            if tbl_cand:
-                tbl = tbl_cand
-                break
-
-        if tbl:
-            total_linhas = int(getattr(tbl, "RowCount", 0))
-            vis_linhas = int(getattr(tbl, "VisibleRowCount", 10))
-            max_iter = min(total_linhas, 50) if total_linhas > 0 else vis_linhas
-
-            for r in range(max_iter):
-                try:
-                    # Garante que a linha esteja visível
-                    if r >= vis_linhas:
-                        try:
-                            tbl.VerticalScrollbar.Position = r
-                        except Exception:
-                            pass
-
-                    mat = ""
-                    desc = ""
-                    qtd = ""
-                    un = ""
-                    centro = ""
-                    dep = ""
-
-                    for nome_mat in ("txtGOITEM-MATNR", "ctxtGOITEM-MATNR"):
-                        try:
-                            mat_ctrl = sessao.findById(f"{tbl.Id}/{nome_mat}[1,{r}]", False)
-                            if mat_ctrl and str(mat_ctrl.Text).strip():
-                                mat = str(mat_ctrl.Text).strip()
-                                break
-                        except Exception:
-                            pass
-
-                    # Se não obteve na coluna 1, tenta varrer colunas comuns
-                    if not mat:
-                        try:
-                            mat = str(tbl.GetCellValue(r, "MATNR")).strip()
-                        except Exception:
-                            pass
-
-                    try:
-                        desc = str(tbl.GetCellValue(r, "MAKTX")).strip()
-                    except Exception:
-                        pass
-
-                    try:
-                        qtd = str(tbl.GetCellValue(r, "ERFMG")).strip()
-                    except Exception:
-                        pass
-
-                    try:
-                        un = str(tbl.GetCellValue(r, "ERFME")).strip()
-                    except Exception:
-                        pass
-
-                    try:
-                        centro = str(tbl.GetCellValue(r, "NAME1")).strip()
-                        if not centro:
-                            centro = str(tbl.GetCellValue(r, "WERKS")).strip()
-                    except Exception:
-                        centro = "EMPR"
-
-                    try:
-                        dep = str(tbl.GetCellValue(r, "LGORT")).strip()
-                        if not dep:
-                            dep = str(tbl.GetCellValue(r, "LGOBE")).strip()
-                    except Exception:
-                        pass
-
-                    if mat or desc or qtd:
-                        itens.append({
-                            "item": str(r + 1),
-                            "material": mat,
-                            "descricao": desc,
-                            "qtd": qtd,
-                            "unidade": un,
-                            "centro": centro or "EMPR",
-                            "deposito": dep
-                        })
-                except Exception as e:
-                    continue
-        else:
-            # Caso não tenha tabela em lista (ex: item único detalhado)
-            try:
-                txt_mat = sessao.findById(
-                    "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_ITEMDETAIL:SAPLMIGO:0301/subSUB_DETAIL:SAPLMIGO:0300/tabsTS_GOITEM/tabpOK_GOITEM_MATERIAL/ssubSUB_TS_GOITEM_MATERIAL:SAPLMIGO:0310/ctxtGOITEM-MAKTX",
-                    False
-                )
-                if txt_mat:
+        for linha in out.splitlines():
+            linha = linha.strip()
+            if linha.startswith("ITEM:"):
+                partes = linha.split(":", 1)[1].split("|")
+                if len(partes) >= 7:
                     itens.append({
-                        "item": "1",
-                        "material": "Item Ordem",
-                        "descricao": str(txt_mat.Text).strip(),
-                        "qtd": "1",
-                        "unidade": "UN",
-                        "centro": "EMPR",
-                        "deposito": "CL03"
+                        "item": partes[0],
+                        "material": partes[1],
+                        "descricao": partes[2],
+                        "qtd": partes[3],
+                        "unidade": partes[4],
+                        "centro": partes[5],
+                        "deposito": partes[6]
                     })
-            except Exception:
-                pass
-
+            elif "ERRO:SAP_DESCONECTADO" in linha or "ERRO:SAP_FECHADO" in linha:
+                raise RuntimeError("O SAP GUI está aberto, mas não possui conexão ativa com o sistema. Conecte ao ambiente (ex: Produção) antes de consultar.")
+            elif "ERRO:SEM_SESSAO" in linha or "ERRO:SEM_CONEXAO" in linha:
+                raise RuntimeError("Nenhuma sessão ativa aberta no SAP. Conecte ao ambiente no SAP Logon.")
+            elif "ERRO:SCRIPTING_DESABILITADO" in linha or "ERRO:SCRIPTING_ENGINE" in linha:
+                raise RuntimeError("Scripting do SAP GUI está desabilitado. Habilite nas Opções do SAP GUI (Acessibilidade e Scripting).")
+            elif "ERRO:" in linha:
+                raise RuntimeError(linha)
         return itens
 
 

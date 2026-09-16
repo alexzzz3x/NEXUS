@@ -89,17 +89,63 @@ def obter_sessao_ativa_sap():
         return None
 
 def verificar_sap_aberto():
+    """Verifica se o SAP GUI está aberto e acessível (VBScript 32/64 bits + COM + Processo)."""
+    # 1. Checagem via cscript nativo (conecta direto na ROT do SAP GUI, testando SysWOW64 e System32)
+    try:
+        import tempfile
+        vbs = 'On Error Resume Next: Set sap = GetObject("SAPGUI"): If Err.Number <> 0 Then WScript.Quit 1 Else WScript.Quit 0'
+        fd, path = tempfile.mkstemp(prefix="chk_sap_", suffix=".vbs", text=True)
+        with os.fdopen(fd, "w", encoding="cp1252") as f:
+            f.write(vbs)
+        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        
+        # Testa cscript 32-bit (SysWOW64) e 64-bit
+        cscripts = []
+        cscript_32 = r"C:\Windows\SysWOW64\cscript.exe"
+        if os.path.exists(cscript_32):
+            cscripts.append(cscript_32)
+        cscripts.append("cscript.exe")
+
+        for cs in cscripts:
+            try:
+                res = subprocess.run([cs, "//nologo", path], timeout=3, creationflags=creationflags)
+                if res.returncode == 0:
+                    try: os.remove(path)
+                    except OSError: pass
+                    return True
+            except Exception:
+                continue
+
+        try: os.remove(path)
+        except OSError: pass
+    except Exception:
+        pass
+
+    # 2. Tenta via win32com direto
     try:
         pythoncom.CoInitialize()
         SapGuiAuto = win32com.client.GetObject("SAPGUI")
         if SapGuiAuto:
-            # Se tem sessão ativa ou objeto SAPGUI válido
-            sess = obter_sessao_ativa_sap()
-            if sess:
-                return True
             return True
     except Exception:
         pass
+
+    # 3. Fallback via verificação de processos ativos do SAP (sapgui.exe ou saplogon.exe)
+    try:
+        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        out = subprocess.check_output(
+            'tasklist /FI "IMAGENAME eq sap*"',
+            shell=True,
+            text=True,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags
+        )
+        out_lower = out.lower()
+        if "sapgui.exe" in out_lower or "saplogon.exe" in out_lower:
+            return True
+    except Exception:
+        pass
+
     return False
 
 ARQUIVO_LOGINS = os.path.join(obter_diretorio_executavel(), "data", "logins_sap.json")
@@ -136,35 +182,96 @@ def salvar_logins():
 def obter_info_sap_atual():
     if _sap_ocupado:
         return "SAP: ocupado..."
+    
+    # 1. Tenta via COM Python primeiro
     try:
         pythoncom.CoInitialize()
         SapGuiAuto = win32com.client.GetObject("SAPGUI")
-        if not SapGuiAuto:
-            return "SAP: desconectado"
-        app = getattr(SapGuiAuto, "GetScriptingEngine", None)
-        if callable(app):
-            app = app()
-        if not app:
-            return "SAP: desconectado"
+        if SapGuiAuto:
+            app = getattr(SapGuiAuto, "GetScriptingEngine", None)
+            if callable(app):
+                app = app()
+            if app:
+                session = obter_sessao_ativa_sap()
+                if session:
+                    info = session.Info
+                    sistema = getattr(info, "SystemName", "") or "SAP"
+                    cliente = getattr(info, "Client", "") or "-"
+                    usuario = getattr(info, "User", "") or "-"
+                    transacao = getattr(info, "Transaction", "") or "-"
+                    return f"SAP: {sistema} | Cliente {cliente} | Usuário {usuario} | Tx {transacao}"
+                else:
+                    cnt = getattr(app.Children, "Count", 0)
+                    if cnt > 0:
+                        return f"SAP: conectado ({cnt} conexões - aguardando login/sessão)"
+                    return "SAP: aberto (sem sessão ativa)"
+    except Exception:
+        pass
 
-        session = obter_sessao_ativa_sap()
-        if not session:
+    # 2. Fallback via VBScript nativo (conecta com a ROT do SAP GUI)
+    try:
+        import tempfile
+        vbs = '''On Error Resume Next
+Set sap = GetObject("SAPGUI")
+If Err.Number <> 0 Or sap Is Nothing Then WScript.Quit 1
+Set app = sap.GetScriptingEngine
+If Err.Number <> 0 Or app Is Nothing Then WScript.Quit 2
+If app.Children.Count = 0 Then WScript.Quit 3
+Set conn = app.Children(0)
+If conn.Children.Count = 0 Then WScript.Quit 4
+Set sess = conn.Children(0)
+WScript.Echo sess.Info.SystemName & "|" & sess.Info.Client & "|" & sess.Info.User & "|" & sess.Info.Transaction
+'''
+        fd, path = tempfile.mkstemp(prefix="info_sap_", suffix=".vbs", text=True)
+        with os.fdopen(fd, "w", encoding="cp1252") as f:
+            f.write(vbs)
+        
+        cscripts = []
+        cscript_32 = r"C:\Windows\SysWOW64\cscript.exe"
+        if os.path.exists(cscript_32):
+            cscripts.append(cscript_32)
+        cscripts.append("cscript.exe")
+
+        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        saida_vbs = ""
+        for cs in cscripts:
             try:
-                cnt = getattr(app.Children, "Count", 0)
-                if cnt > 0:
-                    return f"SAP: conectado ({cnt} conexões - aguardando login/sessão)"
+                res = subprocess.run([cs, "//nologo", path], capture_output=True, text=True, timeout=3, creationflags=creationflags)
+                if res.returncode == 0 and res.stdout.strip():
+                    saida_vbs = res.stdout.strip()
+                    break
             except Exception:
-                pass
-            return "SAP: aberto (sem sessão ativa)"
+                continue
 
-        info = session.Info
-        sistema = getattr(info, "SystemName", "") or "SAP"
-        cliente = getattr(info, "Client", "") or "-"
-        usuario = getattr(info, "User", "") or "-"
-        transacao = getattr(info, "Transaction", "") or "-"
-        return f"SAP: {sistema} | Cliente {cliente} | Usuário {usuario} | Tx {transacao}"
-    except Exception as e:
-        return f"SAP: erro ({e})"
+        try: os.remove(path)
+        except OSError: pass
+
+        if saida_vbs and "|" in saida_vbs:
+            parts = saida_vbs.split("|")
+            if len(parts) >= 4:
+                return f"SAP: {parts[0] or 'SAP'} | Cliente {parts[1] or '-'} | Usuário {parts[2] or '-'} | Tx {parts[3] or '-'}"
+    except Exception:
+        pass
+
+    # 3. Se não tem sessão ativa, verifica se o processo saplogon ou sapgui está aberto
+    try:
+        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+        out = subprocess.check_output(
+            'tasklist /FI "IMAGENAME eq sap*"',
+            shell=True,
+            text=True,
+            stderr=subprocess.DEVNULL,
+            creationflags=creationflags
+        )
+        out_lower = out.lower()
+        if "sapgui.exe" in out_lower:
+            return "SAP: aberto (sessão em carregamento)"
+        elif "saplogon.exe" in out_lower:
+            return "SAP: Logon aberto (aguardando conexão/login)"
+    except Exception:
+        pass
+
+    return "SAP: desconectado"
 
 def consultar_info_sap_async(callback, widget_ref=None):
     """Executa a consulta do SAP em uma thread em background e retorna o resultado para a thread principal de forma segura."""
