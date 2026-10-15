@@ -301,6 +301,8 @@ Documentação detalhada e instruções de suporte para guiar o assistente virtu
   - **Suporte a Arquivo Único com Duas Abas**: Permite cruzar ZM29 e contagem física presentes no mesmo workbook (ex: aba 'ZM29' e aba 'Estoque Livre').
   - **Botão '📥 Puxar Lote 0 da Planilha Beta'**: Adicionado no topo do layout para extrair automaticamente os dados de Lote 0 da planilha `CONTROLE_SERIAIS.vBeta.xlsm`, consolidar as quantidades por material para o depósito ativo (`CL03`/`CL04`) e carregar automaticamente no campo de contagem física.
   - **Engine de Cruzamento Robusta**: Tratamento de unidades brasileiras, ordenação dinâmica por divergência na Treeview e exportação de relatório Excel (.xlsx) com métricas de acurácia e destaque visual de status (🟢 Bateu, 🔴 Faltou, 🟡 Sobrando).
-
-
-
+- [x] **Sistema de Atualização Automática Híbrido & Patch Notes Acumulativas (`src/utils_updater.py` / `versao.json`)**:
+  - **Consulta Híbrida**: Checagem de novas versões primeiro online via GitHub público (`raw.githubusercontent.com/.../versao.json`) com fallback transparente para a rede corporativa (`Drive X:`).
+  - **Patch Notes Acumulativas (Forma A)**: O campo `notas` no `versao.json` acumula as versões recentes agrupadas por cabeçalho (ex: `[v2.2.2]`, `[v2.2.1]`), permitindo que operadores que pulem versões leiam todo o histórico de mudanças.
+  - **Encerramento e Inicialização Seguros**: Script `.bat` de atualização higieniza as variáveis herdadas do PyInstaller (`_MEIPASS2`, `PYTHONHOME`, `PYTHONPATH`) evitando o erro `Failed to import encodings module`, e utiliza loop de encerramento em árvore (`taskkill /F /T`) com polling no `tasklist` até a liberação completa do mutex de instância única.
+  - **Modal de Atualização Moderno (`540x510`)**: Layout espaçoso com botões fixos no rodapé (`side="bottom"`), barra de progresso em tempo real e caixa de texto com scroll para notas longas.

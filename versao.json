@@ -2,5 +2,5 @@
   "versao": "2.2.2",
   "data": "15/10/2026 15:45",
   "url_download": "https://github.com/Alexzzz1x/N.E.X.U.S/releases/latest/download/NEXUS.zip",
-  "notas": "• 🎨 Nova Paleta de Cores: 'Cyberpunk Rose' disponível no seletor de temas!\n• Modal de atualização ampliado com layout refinado\n• Encerramento e reinicialização 100% seguros com higienização de memória"
+  "notas": "[v2.2.2]\n• 🎨 Nova Paleta de Cores: 'Cyberpunk Rose' no seletor de temas!\n• Modal de atualização ampliado (540x510) com botões fixos no rodapé\n• Encerramento e reinicialização 100% seguros em árvore (/T)\n\n[v2.2.1]\n• Sistema de atualização automática online via GitHub e rede local\n• Módulo Saída OSME com suporte a lançamento contábil (MIGO Z61)\n• Módulo Contagem de Depósito (conferência Lote 0 vs ZM29)\n• Gerenciador de bandeja do Windows (System Tray) para gravações seguras"
 }
