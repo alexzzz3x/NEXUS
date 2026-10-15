@@ -285,12 +285,21 @@ Documentação detalhada e instruções de suporte para guiar o assistente virtu
   - Botão `🧹 Remover Divergentes da Lista` no Card 2 para limpar seriais inválidos do campo de texto com um clique após auditoria na ZMCSE01.
   - Classificação estrita de divergências (fora de LIDI/DISP, com nota de serviço, ou sem ordem de origem) impedindo que quebrem a execução no SAP.
   - Fechamento proativo de popups informativos no loop de espera da grade ALV da ZMMCSE001.
-- [ ] **Botão de Emergência / "Forçar Parada" na Contagem de Carro (`src/modulo_contagem_carro.py`)**:
-  - Quando ocorrer travamento ou lentidão extrema no SAP (ex: loops de popups, modais modais travados ou lentidão de rede de 10-15 minutos), permitir ao operador interromper imediatamente a execução sem precisar encerrar o N.E.X.U.S.
-  - Ação do botão: matar processos filhos `cscript.exe` via `subprocess.Popen.terminate()` / `taskkill`, acionar flag de cancelamento (`abort_event`), resetar `set_sap_ocupado(False)` e reabilitar a UI com mensagem de cancelamento seguro.
-- [ ] **Redesign de Navegação — Abas Laterais / Sidebar (`src/conecta_hub2.py`)**:
-  - A barra horizontal superior ficou saturada com 17+ abas (truncando textos como `ni`, `Etique`, `OS`, `RE`, `Contagem de Ca`).
-  - Migrar para layout com barra/painel lateral esquerdo (Sidebar com scroll, ícones organizados, agrupamento por categorias como SAP, Almoxarifado, Auditoria e visual moderno e expansível).
+- [x] **Botão de Emergência / "Interromper SAP" na Barra de Status (`src/conecta_hub2.py` / `src/modulo_Sap.py`)**:
+  - Botão vermelho `🛑 Interromper SAP` exibido dinamicamente na barra de status sempre que qualquer automação SAP estiver ocupada (`is_sap_ocupado() == True`).
+  - Mata processos filhos `cscript.exe` com segurança, aciona flag `is_abortar_solicitado()`, reseta estado de ocupado e libera a UI imediatamente.
+- [x] **Redesign de Navegação — Abas Laterais / Sidebar (`src/sidebar_navegacao.py` / `src/conecta_hub2.py`)**:
+  - Setas indicativas dinâmicas no botão de alternância (`◀` para recolher, `▶` para expandir) com tooltips contextuais.
+  - Setas de categorias mais nítidas e bold (`▾` / `▸`), e centralização limpa de ícones no modo recolhido sem corte de texto.
+  - Barra de busca rápida no topo da Sidebar (Omnibar com atalho `Ctrl+F`) para filtragem instantânea de módulos em tempo real.
+  - Eliminação do vão preto à direita via layout dinâmico `grid` no `frame_corpo` (conteúdo expande automaticamente para 100% da largura).
+- [x] **Módulo Extrator OSME (`src/modulo_extrair_OSME.py` / `scripts/Sciprt OSME2.vbs`)**:
+  - Correção da substituição do campo de equipe na transação `ZUDWM_237` (`ctxtS_EQUIPE-LOW`), eliminando o bug que prendia a execução em `csc300`.
+  - Ordenação decrescente por Ordem (`AUFNR` com `&SORT_DSC`) para capturar sempre a OSME ativa mais recente na linha 0.
+  - Confirmação robusta de janelas de diálogo do SAP (`btn[0]` e `btn[11]` para substituição de arquivos).
+  - Loop de espera COM resiliente na impressão automática do Excel evitando erro `(-2147221021, 'Operação não disponível')`.
+  - Alerta sonoro nativo do Windows ao concluir a extração.
+
 - [x] **Módulo Mudança de Recurso (`modulos/mudanca_recurso.py` e `src/modulo_mudanca_recurso.py`)**:
   - **Inversão de Fluxo com Fail-Fast Pré-Voo**: A consulta e validação da ordem ativa de destino na IW39 foi antecipada para a **Etapa 2/4** (antes de qualquer MIGO). Se a ordem de destino não for encontrada, o processo é abortado imediatamente com **zero movimentação contábil no SAP**, impedindo que o estorno Z62 seja executado sem destino garantido.
   - **Busca Resiliente na IW39**: Tratamento automático de janelas modais informativas (`wnd[1]`), fallback de casing minúsculo/maiúsculo para o parceiro Z2 (`cvc308` e `CVC308`), captura via Regex no título e busca na grade ALV ordenada por vencimento (`GLTRP`).

@@ -377,12 +377,54 @@ lbl_status.pack(side="left", padx=10, pady=2)
 lbl_sap_info = ctk.CTkLabel(bar_status, text="SAP: verificando...", font=("Segoe UI", 11, "bold"))
 lbl_sap_info.pack(side="left", padx=20, pady=2)
 
+def acao_interromper_sap():
+    try:
+        from modulo_Sap import abortar_automacao_sap
+        abortar_automacao_sap()
+        lbl_status.configure(text="🛑 Automação SAP interrompida com segurança.")
+        if btn_interromper_sap.winfo_ismapped():
+            btn_interromper_sap.pack_forget()
+    except Exception as e:
+        print(f"Erro ao interromper SAP: {e}")
+
+btn_interromper_sap = ctk.CTkButton(
+    bar_status,
+    text="🛑 Interromper SAP",
+    width=130,
+    height=22,
+    corner_radius=6,
+    fg_color="#ef4444",
+    hover_color="#dc2626",
+    text_color="#ffffff",
+    font=("Segoe UI", 10, "bold"),
+    command=acao_interromper_sap
+)
+
+def checar_status_sap_ocupado():
+    try:
+        from modulo_Sap import is_sap_ocupado
+        if is_sap_ocupado():
+            if not btn_interromper_sap.winfo_ismapped():
+                btn_interromper_sap.pack(side="left", padx=15, pady=2)
+        else:
+            if btn_interromper_sap.winfo_ismapped():
+                btn_interromper_sap.pack_forget()
+    except Exception:
+        pass
+    finally:
+        root.after(1000, checar_status_sap_ocupado)
+
+root.after(1500, checar_status_sap_ocupado)
+
 lbl_creditos = ctk.CTkLabel(bar_status, text="2026 Desenvolvido por 🟢 Anderson Vieira™", font=("Segoe UI", 11, "italic"))
 lbl_creditos.pack(side="right", padx=10, pady=2)
 
-# CORPO PRINCIPAL (Sidebar à esquerda + Área de Conteúdo à direita)
+# CORPO PRINCIPAL (Sidebar à esquerda + Área de Conteúdo à direita via Grid Dinâmico)
 frame_corpo = ctk.CTkFrame(root, corner_radius=0, fg_color="transparent")
 frame_corpo.pack(side="top", fill=tk.BOTH, expand=True, padx=0, pady=0)
+frame_corpo.grid_rowconfigure(0, weight=1)
+frame_corpo.grid_columnconfigure(0, weight=0)
+frame_corpo.grid_columnconfigure(1, weight=1)
 
 tab_name_home = "🏠 Início"
 tab_name_gerador = "🎫 Etiquetas"
@@ -442,18 +484,20 @@ CATEGORIAS_SIDEBAR = [
     },
 ]
 
-# 1. SIDEBAR LATERAL (Empacotada primeiro no lado esquerdo do frame_corpo)
+# 1. SIDEBAR LATERAL (Posicionada na coluna 0 da grade)
 sidebar_navegacao = SidebarNavegacao(
     frame_corpo,
     notebook=None,
     categorias=CATEGORIAS_SIDEBAR,
     paletas=PALETAS,
-    obter_tema_atual=obter_tema_atual
+    obter_tema_atual=obter_tema_atual,
+    use_grid=True
 )
 
-# 2. CONTAINER DO CONTEÚDO (Empacotado à esquerda, expandindo e ocupando todo o espaço restante)
+# 2. CONTAINER DO CONTEÚDO (Posicionado na coluna 1 da grade, preenchendo 100% do espaço sem vão preto)
 frame_conteudo = ctk.CTkFrame(frame_corpo, corner_radius=0, fg_color="transparent")
-frame_conteudo.pack(side="left", fill=tk.BOTH, expand=True, padx=(4, 10), pady=(0, 4))
+frame_conteudo.grid(row=0, column=1, sticky="nsew", padx=(4, 10), pady=(0, 4))
+
 
 # 3. NOTEBOOK (TABS) inserido no frame_conteudo, com segmented_button 100% suprimido
 notebook = ctk.CTkTabview(frame_conteudo, corner_radius=8)

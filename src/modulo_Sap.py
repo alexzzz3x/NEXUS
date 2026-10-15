@@ -20,13 +20,48 @@ DEFAULT_PALETAS = {
 
 _sap_ocupado = False
 _login_em_andamento = False
+_processo_sap_ativo = None
+_abortar_solicitado = False
 
 def is_sap_ocupado():
     return _sap_ocupado
 
 def set_sap_ocupado(valor: bool):
-    global _sap_ocupado
+    global _sap_ocupado, _abortar_solicitado
     _sap_ocupado = valor
+    if valor:
+        _abortar_solicitado = False
+
+def is_abortar_solicitado():
+    return _abortar_solicitado
+
+def registrar_processo_sap(proc):
+    global _processo_sap_ativo
+    _processo_sap_ativo = proc
+
+def limpar_processo_sap():
+    global _processo_sap_ativo
+    _processo_sap_ativo = None
+
+def abortar_automacao_sap():
+    """Interrompe qualquer automação SAP em andamento, matando processos filhos e liberando o estado."""
+    global _abortar_solicitado, _processo_sap_ativo, _sap_ocupado
+    _abortar_solicitado = True
+    if _processo_sap_ativo is not None:
+        try:
+            _processo_sap_ativo.terminate()
+        except Exception:
+            pass
+        _processo_sap_ativo = None
+
+    try:
+        creationflags = 0x08000000 if os.name == "nt" else 0
+        subprocess.run(["taskkill", "/F", "/IM", "cscript.exe"], capture_output=True, creationflags=creationflags)
+    except Exception:
+        pass
+
+    _sap_ocupado = False
+
 
 def obter_caminho_saplogon():
     candidatos = [

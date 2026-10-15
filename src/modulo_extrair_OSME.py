@@ -193,7 +193,20 @@ class AbaExtrairOSME:
     def _executar_recursos(self, recursos):
         set_sap_ocupado(True)
         try:
+            from modulo_Sap import is_abortar_solicitado, registrar_processo_sap, limpar_processo_sap
+            from utils_som import emitir_alerta_sonoro
+        except Exception:
+            is_abortar_solicitado = lambda: False
+            registrar_processo_sap = lambda p: None
+            limpar_processo_sap = lambda: None
+            emitir_alerta_sonoro = lambda s: None
+
+        try:
             for recurso in recursos:
+                if is_abortar_solicitado():
+                    self._log_threadsafe("\n🛑 Processo interrompido pelo usuário.")
+                    break
+
                 self._log_threadsafe(f"\n⏳ Consultando OSME para: {recurso}...")
                 script_temp = self._criar_script_temporario(recurso)
 
@@ -201,17 +214,23 @@ class AbaExtrairOSME:
                     self._log_threadsafe("🔍 Executando extração OSME no SAP...")
 
                     creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-                    resultado = subprocess.run(
+                    proc = subprocess.Popen(
                         ["cscript.exe", "//nologo", script_temp],
-                        capture_output=True, text=True, timeout=None, creationflags=creationflags,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        creationflags=creationflags
                     )
+                    registrar_processo_sap(proc)
+                    stdout, stderr = proc.communicate()
+                    limpar_processo_sap()
 
-                    saida = (resultado.stdout or "").strip()
+                    saida = (stdout or "").strip()
                     if saida:
                         for linha in saida.splitlines():
                             self._log_threadsafe(linha.strip())
 
-                    if resultado.returncode == 0:
+                    if proc.returncode == 0:
                         if self.imprimir_excel_var.get():
                             self._log_threadsafe("🖨️ Enviando planilha do Excel para impressão...")
                             self._imprimir_excel_aberto()
@@ -221,10 +240,12 @@ class AbaExtrairOSME:
                         except Exception:
                             pass
                         self.parent_frame.after(0, lambda r=recurso: self._adicionar_historico(r, "✅ Concluído"))
+                        emitir_alerta_sonoro(True)
                     else:
-                        erro = (resultado.stderr or resultado.stdout or "Erro desconhecido.").strip()
+                        erro = (stderr or stdout or "Erro desconhecido.").strip()
                         self._log_threadsafe(f"⚠️ Falha na extração OSME de {recurso}: {erro}")
                         self.parent_frame.after(0, lambda r=recurso: self._adicionar_historico(r, "❌ Falha"))
+                        emitir_alerta_sonoro(False)
                 finally:
                     try: os.remove(script_temp)
                     except OSError: pass
@@ -247,6 +268,20 @@ class AbaExtrairOSME:
             conteudo = f.read()
 
         conteudo = self._inserir_reset_sap(conteudo)
+
+        # 1. Substitui campo ctxtS_EQUIPE-LOW da ZUDWM_237
+        conteudo = re.sub(
+            r'(session\.findById\("wnd\[0\]/usr/ctxtS_EQUIPE-LOW"\)\.text\s*=\s*)".*?"',
+            lambda match: f'{match.group(1)}"{recurso}"',
+            conteudo, count=1, flags=re.IGNORECASE,
+        )
+        conteudo = re.sub(
+            r'(session\.findById\("wnd\[0\]/usr/ctxtS_EQUIPE-LOW"\)\.caretPosition\s*=\s*)\d+',
+            lambda match: f"{match.group(1)}{len(recurso)}",
+            conteudo, count=1, flags=re.IGNORECASE,
+        )
+
+        # 2. Fallback caso o script use ctxtDY_PARNR (IW39)
         conteudo = re.sub(
             r'(session\.findById\("wnd\[0\]/usr/ctxtDY_PARNR"\)\.text\s*=\s*)".*?"',
             lambda match: f'{match.group(1)}"{recurso}"',
@@ -257,6 +292,9 @@ class AbaExtrairOSME:
             lambda match: f"{match.group(1)}{len(recurso)}",
             conteudo, count=1, flags=re.IGNORECASE,
         )
+
+        # 3. Fallback para tag {RECURSO}
+        conteudo = re.sub(r'\{RECURSO\}', recurso, conteudo, flags=re.IGNORECASE)
 
         fd, caminho_temp = tempfile.mkstemp(prefix="sap_osme_", suffix=".vbs")
         with open(fd, "w", encoding="utf-8", errors="ignore") as f:
@@ -284,29 +322,37 @@ class AbaExtrairOSME:
         def _acao():
             pythoncom.CoInitialize()
             try:
-                hwnd = self._esperar_janela_excel(timeout=15)
-                if hwnd:
+                # Tenta localizar a instância do Excel com retry por até 20 segundos
+                excel = None
+                inicio = time.time()
+                while time.time() - inicio < 20:
                     try:
-                        win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+                        excel = win32com.client.GetObject(Class="Excel.Application")
+                        if excel and excel.Workbooks.Count > 0:
+                            break
                     except Exception:
                         pass
+                    time.sleep(1)
 
-                excel = win32com.client.GetObject(Class="Excel.Application")
                 if excel and excel.Workbooks.Count > 0:
-                    wb = excel.ActiveWorkbook
-                    if wb:
-                        wb.PrintOut()
-                        self._log_threadsafe("🖨️ Comando de impressão enviado ao Excel.")
-                    else:
-                        self._log_threadsafe("⚠️ Nenhuma pasta de trabalho ativa encontrada no Excel.")
+                    try:
+                        wb = excel.ActiveWorkbook
+                        if wb:
+                            wb.PrintOut()
+                            self._log_threadsafe("🖨️ Comando de impressão enviado com sucesso ao Excel.")
+                        else:
+                            self._log_threadsafe("⚠️ Nenhuma pasta de trabalho ativa encontrada no Excel.")
+                    except Exception as e:
+                        self._log_threadsafe(f"⚠️ Erro ao disparar PrintOut no Excel: {e}")
                 else:
-                    self._log_threadsafe("⚠️ Excel não localizado via COM para impressão automática.")
+                    self._log_threadsafe("⚠️ Excel não localizado a tempo para impressão automática.")
             except Exception as e:
                 self._log_threadsafe(f"⚠️ Não foi possível imprimir automaticamente: {e}")
             finally:
                 pythoncom.CoUninitialize()
 
         threading.Thread(target=_acao, daemon=True).start()
+
 
     def _esperar_janela_excel(self, timeout=15, intervalo=0.5):
         inicio = time.time()

@@ -71,13 +71,14 @@ class SidebarNavegacao:
     LARGURA_EXPANDIDA = 230
     LARGURA_RECOLHIDA = 68
 
-    def __init__(self, parent, notebook, categorias, paletas, obter_tema_atual, on_tab_changed=None):
+    def __init__(self, parent, notebook, categorias, paletas, obter_tema_atual, on_tab_changed=None, use_grid=True):
         self.parent = parent
         self.notebook = notebook
         self.categorias = categorias
         self.paletas = paletas
         self.obter_tema_atual = obter_tema_atual
         self.on_tab_changed = on_tab_changed
+        self.use_grid = use_grid
 
         self.expandido = True
         self.aba_selecionada = None
@@ -102,22 +103,29 @@ class SidebarNavegacao:
         # Container lateral fixo
         self.frame_container = ctk.CTkFrame(self.parent, width=self.LARGURA_EXPANDIDA, corner_radius=0)
         self.frame_container.pack_propagate(False)
-        self.frame_container.pack(side="left", fill="y")
+        self.frame_container.grid_propagate(False)
 
-        # Topo da sidebar com botão toggle ☰
+        if self.use_grid:
+            self.frame_container.grid(row=0, column=0, sticky="nsew")
+        else:
+            self.frame_container.pack(side="left", fill="y")
+
+        # Topo da sidebar com botão toggle indicativo (◀/▶)
         self.frame_topo = ctk.CTkFrame(self.frame_container, height=44, corner_radius=0, fg_color="transparent")
         self.frame_topo.pack(fill="x", padx=4, pady=(6, 2))
 
         self.btn_toggle = ctk.CTkButton(
             self.frame_topo,
-            text="☰",
-            width=36,
-            height=34,
-            font=("Segoe UI", 16, "bold"),
+            text="◀",
+            width=34,
+            height=32,
+            font=("Segoe UI", 13, "bold"),
             corner_radius=8,
             command=self.alternar_expansao
         )
         self.btn_toggle.pack(side="left", padx=(6, 8), pady=4)
+        self.btn_toggle.bind("<Enter>", lambda e: self.tooltip.exibir(self.btn_toggle, "Recolher menu" if self.expandido else "Expandir menu", self.paletas.get(self.obter_tema_atual(), {})))
+        self.btn_toggle.bind("<Leave>", lambda e: self.tooltip.ocultar())
 
         self.lbl_menu_title = ctk.CTkLabel(
             self.frame_topo,
@@ -126,6 +134,23 @@ class SidebarNavegacao:
         )
         self.lbl_menu_title.pack(side="left", fill="x", expand=True, pady=4)
 
+        # Barra de Busca Rápida (Filtro instantâneo no topo)
+        self.frame_busca = ctk.CTkFrame(self.frame_container, height=32, corner_radius=6, fg_color="transparent")
+        self.entry_busca = ctk.CTkEntry(
+            self.frame_busca,
+            placeholder_text="🔍 Buscar módulo...",
+            font=("Segoe UI", 11),
+            height=28,
+            corner_radius=6
+        )
+        self.entry_busca.pack(fill="x", expand=True, padx=4, pady=2)
+        self.entry_busca.bind("<KeyRelease>", self._ao_filtrar_modulos)
+
+        try:
+            self.parent.winfo_toplevel().bind("<Control-f>", lambda e: self._focar_busca())
+        except Exception:
+            pass
+
         # Scrollable frame para suportar qualquer quantidade de módulos
         self.scroll = ctk.CTkScrollableFrame(self.frame_container, corner_radius=0, fg_color="transparent")
         self.scroll.pack(fill="both", expand=True, padx=2, pady=2)
@@ -133,6 +158,7 @@ class SidebarNavegacao:
         self._construir_itens()
         self.aplicar_tema(self.obter_tema_atual())
         self._atualizar_layout()
+
 
     # ---------------------------------------------------------
     # Persistência Segura de Favoritos (AppData / data raiz)
@@ -183,7 +209,7 @@ class SidebarNavegacao:
         """Constrói a seção de Favoritos e as categorias normais."""
         # A. SEÇÃO DE FAVORITOS (Fixa no topo)
         self.cat_header_fav = ctk.CTkFrame(self.scroll, height=28, corner_radius=6, fg_color="transparent", cursor="hand2")
-        self.lbl_arrow_fav = ctk.CTkLabel(self.cat_header_fav, text="▾", width=14, font=("Segoe UI", 9, "bold"))
+        self.lbl_arrow_fav = ctk.CTkLabel(self.cat_header_fav, text="▾", width=18, font=("Segoe UI", 11, "bold"))
         self.lbl_arrow_fav.pack(side="left", padx=(4, 2))
 
         self.lbl_titulo_fav = ctk.CTkLabel(self.cat_header_fav, text="⭐ FAVORITOS", font=("Segoe UI", 9, "bold"), anchor="w")
@@ -210,7 +236,7 @@ class SidebarNavegacao:
             nome_cat = cat["nome"]
 
             cat_header = ctk.CTkFrame(self.scroll, height=28, corner_radius=6, fg_color="transparent", cursor="hand2")
-            lbl_arrow = ctk.CTkLabel(cat_header, text="▾", width=14, font=("Segoe UI", 9, "bold"))
+            lbl_arrow = ctk.CTkLabel(cat_header, text="▾", width=18, font=("Segoe UI", 11, "bold"))
             lbl_arrow.pack(side="left", padx=(4, 2))
 
             lbl_titulo = ctk.CTkLabel(cat_header, text=nome_cat, font=("Segoe UI", 9, "bold"), anchor="w")
@@ -358,6 +384,34 @@ class SidebarNavegacao:
         finally:
             menu.grab_release()
 
+    def _ao_filtrar_modulos(self, event=None):
+        """Filtra módulos em tempo real conforme o operador digita na busca."""
+        termo = self.entry_busca.get().strip().lower()
+        if not termo:
+            self._atualizar_layout()
+            return
+
+        for info in self.botoes_info:
+            nome = info["nome"].lower()
+            cat = info["cat"]
+            corresponde = (termo in nome) or (termo in cat.lower()) or (termo in info["tab_id"].lower())
+            if corresponde:
+                info["row"].pack(fill="x", padx=4, pady=1)
+                if cat in self.categoria_widgets:
+                    self.categoria_widgets[cat]["itens_frame"].pack(fill="x", padx=2, pady=(0, 2))
+                    self.categoria_widgets[cat]["header"].pack(fill="x", padx=4, pady=(6, 2))
+            else:
+                info["row"].pack_forget()
+
+    def _focar_busca(self):
+        """Atalho de teclado (Ctrl+F) para focar no campo de busca da sidebar."""
+        if not self.expandido:
+            self.alternar_expansao()
+        try:
+            self.entry_busca.focus_set()
+        except Exception:
+            pass
+
     def _toggle_grupo(self, nome_cat):
         """Alterna a visibilidade dos itens de uma categoria no modo expandido."""
         if not self.expandido:
@@ -385,6 +439,10 @@ class SidebarNavegacao:
             self.lbl_menu_title.pack_forget()
             self.btn_toggle.pack(side="left", padx=(6, 8), pady=4)
             self.lbl_menu_title.pack(side="left", fill="x", expand=True, pady=4)
+            self.btn_toggle.configure(text="◀")
+
+            if hasattr(self, "frame_busca"):
+                self.frame_busca.pack(fill="x", padx=6, pady=(0, 4))
 
             # Cabeçalho de Favoritos
             self.cat_header_fav.pack(fill="x", padx=4, pady=(4, 2))
@@ -437,8 +495,12 @@ class SidebarNavegacao:
         else:
             self.frame_container.configure(width=self.LARGURA_RECOLHIDA)
             self.lbl_menu_title.pack_forget()
+            if hasattr(self, "frame_busca"):
+                self.frame_busca.pack_forget()
+
             self.btn_toggle.pack_forget()
             self.btn_toggle.pack(side="top", padx=4, pady=4)
+            self.btn_toggle.configure(text="▶")
 
             # No modo recolhido, cabeçalhos de grupos ficam ocultos
             self.cat_header_fav.pack_forget()
@@ -450,7 +512,7 @@ class SidebarNavegacao:
                     cw["header"].pack_forget()
                 cw["itens_frame"].pack(fill="x", padx=2, pady=1)
 
-            # No modo recolhido, desempacota completamente e centraliza ícones em 42px sem esticar
+            # No modo recolhido, centraliza os botoes com apenas o icone
             for info in self.botoes_info:
                 btn_fav = info.get("btn_fav")
                 if btn_fav:
@@ -467,14 +529,14 @@ class SidebarNavegacao:
 
                 btn.configure(
                     text=info["icon"],
-                    anchor="center",
-                    width=42,
                     height=34
                 )
                 btn.pack(fill="both", expand=True)
 
         self._atualizar_destaque_botoes()
         self._atualizar_estrelas()
+
+
 
     # ---------------------------------------------------------
     # Seleção de Abas & Destaque
@@ -563,5 +625,9 @@ class SidebarNavegacao:
         if hasattr(self, "divider_fav"):
             self.divider_fav.configure(fg_color=inp)
 
+        if hasattr(self, "entry_busca"):
+            self.entry_busca.configure(fg_color=inp, text_color=fg_texto, border_color=inp)
+
         self._atualizar_destaque_botoes()
         self._atualizar_estrelas()
+
