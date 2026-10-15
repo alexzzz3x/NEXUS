@@ -275,7 +275,7 @@ except Exception:
     pass
 
 root = ctk.CTk()
-root.title("N.E.X.U.S")
+root.title(f"N.E.X.U.S v{VERSAO_ATUAL}")
 root.geometry("1160x700")
 root.withdraw() # Hide root initially for splash screen
 aplicar_icone_janela(root)

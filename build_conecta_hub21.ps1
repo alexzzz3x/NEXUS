@@ -29,11 +29,18 @@ if os.path.exists(pasta_rede) and os.path.exists(exe_path):
     
     versao_dest = os.path.join(pasta_rede, 'versao.json')
     dados_versao = {
-        'versao': '2.2.0',
+        'versao': '1.0.0',
         'data': datetime.datetime.now().strftime('%d/%m/%Y %H:%M'),
         'arquivo_zip': 'NEXUS.zip',
-        'notas': 'Atualizacao com correcao de datas na Saida OSME e auto-updater integrado.'
+        'notas': 'N.E.X.U.S v1.0 — Versao Oficial de Lancamento.'
     }
+    if os.path.exists('versao.json'):
+        try:
+            with open('versao.json', 'r', encoding='utf-8') as vf:
+                dados_versao = json.load(vf)
+                dados_versao['data'] = datetime.datetime.now().strftime('%d/%m/%Y %H:%M')
+        except Exception:
+            pass
     with open(versao_dest, 'w', encoding='utf-8') as f:
         json.dump(dados_versao, f, indent=2, ensure_ascii=False)
     print('Publicado com sucesso em: ' + pasta_rede)
