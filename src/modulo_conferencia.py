@@ -5,7 +5,9 @@ from tkinter import messagebox
 import customtkinter as ctk
 
 DEFAULT_PALETAS = {
-    "Conecta Blue": {"bg": "#0a192f", "container": "#172a45", "texto": "#ffffff", "accent": "#f57c00", "hover": "#e65100", "input": "#1f3a60"}
+    "Nexus": {"bg": "#090d16", "container": "#111827", "texto": "#f8fafc", "accent": "#00d2ff", "hover": "#0284c7", "input": "#1a2436"},
+    "Azul Delray": {"bg": "#0a192f", "container": "#172a45", "texto": "#ffffff", "accent": "#38bdf8", "hover": "#0284c7", "input": "#1f3a60"},
+    "Conecta Blue": {"bg": "#0a192f", "container": "#172a45", "texto": "#ffffff", "accent": "#38bdf8", "hover": "#0284c7", "input": "#1f3a60"}
 }
 
 class AbaConferencia:
@@ -13,7 +15,7 @@ class AbaConferencia:
         self.parent_frame = parent_frame
         self.label_status_global = label_status_global
         self.paletas = paletas or DEFAULT_PALETAS
-        self.obter_tema_atual = obter_tema_atual or (lambda: "Conecta Blue")
+        self.obter_tema_atual = obter_tema_atual or (lambda: "Nexus")
         self.relatorio_texto = ""
 
         self._construir_interface()
@@ -321,7 +323,7 @@ class AbaConferencia:
 
     def _cores(self, tema_nome=None):
         tema = tema_nome or self.obter_tema_atual()
-        return self.paletas.get(tema, next(iter(self.paletas.values())))
+        return self.paletas.get(tema, self.paletas.get("Nexus", DEFAULT_PALETAS["Nexus"]))
 
 def construir_aba_conferencia(parent_frame, label_status_global=None, paletas=None, obter_tema_atual=None):
     return AbaConferencia(parent_frame, label_status_global, paletas, obter_tema_atual)

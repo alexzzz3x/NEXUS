@@ -10,6 +10,7 @@ def focar_janela_existente(titulo_parcial="N.E.X.U.S"):
     """Tenta encontrar a janela existente pelo título e colocá-la em primeiro plano."""
     try:
         user32 = ctypes.windll.user32
+        focou = [False]
         
         def enum_windows_proc(hwnd, extra):
             if user32.IsWindowVisible(hwnd):
@@ -21,13 +22,15 @@ def focar_janela_existente(titulo_parcial="N.E.X.U.S"):
                     if titulo_parcial.lower() in val or "nexus" in val or "conecta hub" in val:
                         user32.ShowWindow(hwnd, SW_RESTORE)
                         user32.SetForegroundWindow(hwnd)
+                        focou[0] = True
                         return False
             return True
 
         WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
         user32.EnumWindows(WNDENUMPROC(enum_windows_proc), 0)
+        return focou[0]
     except Exception:
-        pass
+        return False
 
 def garantir_instancia_unica(nome_mutex="Nexus_SAP_Singleton_Mutex"):
     """
@@ -46,7 +49,18 @@ def garantir_instancia_unica(nome_mutex="Nexus_SAP_Singleton_Mutex"):
         if last_error == ERROR_ALREADY_EXISTS:
             if mutex:
                 kernel32.CloseHandle(mutex)
-            focar_janela_existente("Conecta Hub")
+            focou = focar_janela_existente("N.E.X.U.S")
+            if not focou:
+                try:
+                    ctypes.windll.user32.MessageBoxW(
+                        0,
+                        "O N.E.X.U.S já está em execução no sistema.\n\n"
+                        "Caso a janela não esteja visível, verifique a barra de tarefas ou finalize a instância anterior no Gerenciador de Tarefas.",
+                        "N.E.X.U.S Já Aberto",
+                        0x30 | 0x10000  # MB_ICONWARNING | MB_SETFOREGROUND
+                    )
+                except Exception:
+                    pass
             return False, None
             
         return True, mutex
@@ -57,10 +71,17 @@ def obter_diretorio_executavel():
     """
     Retorna o diretório onde o executável principal está localizado.
     Se estiver rodando como script Python, retorna o diretório raiz do projeto.
-    Usado para arquivos persistentes (Banco de dados, configurações, logins).
+    Se o executável estiver solto na Área de Trabalho, redireciona para a raiz do projeto
+    ou AppData para NUNCA poluir o Desktop com pastas como data/ ou skills/.
     """
     if getattr(sys, "frozen", False):
-        return os.path.dirname(sys.executable)
+        exe_dir = os.path.dirname(sys.executable)
+        if os.path.basename(os.path.normpath(exe_dir)).lower() == "desktop":
+            caminho_projeto = os.path.join(exe_dir, "DEV", "PROJETO MODULAR 2")
+            if os.path.isdir(caminho_projeto):
+                return caminho_projeto
+            return obter_diretorio_dados()
+        return exe_dir
     # Se estiver dentro de src/, retorna a pasta raiz do projeto
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

@@ -39,12 +39,28 @@ except ImportError:
     notification = None
 
 DEFAULT_PALETAS = {
+    "Nexus": {
+        "bg": "#090d16",
+        "container": "#111827",
+        "texto": "#f8fafc",
+        "accent": "#00d2ff",
+        "hover": "#0284c7",
+        "input": "#1a2436",
+    },
+    "Azul Delray": {
+        "bg": "#0a192f",
+        "container": "#172a45",
+        "texto": "#ffffff",
+        "accent": "#38bdf8",
+        "hover": "#0284c7",
+        "input": "#1f3a60",
+    },
     "Conecta Blue": {
         "bg": "#0a192f",
         "container": "#172a45",
         "texto": "#ffffff",
-        "accent": "#f57c00",
-        "hover": "#e65100",
+        "accent": "#38bdf8",
+        "hover": "#0284c7",
         "input": "#1f3a60",
     }
 }
@@ -55,15 +71,16 @@ class AbaMudancaRecurso:
         self.parent_frame = parent_frame
         self.label_status_global = label_status_global
         self.paletas = paletas or DEFAULT_PALETAS
-        self.obter_tema_atual = obter_tema_atual or (lambda: "Conecta Blue")
+        self.obter_tema_atual = obter_tema_atual or (lambda: "Nexus")
         self.executando = False
+        self.ultimos_itens = []
 
         self._construir_interface()
         self.aplicar_tema(self.obter_tema_atual())
         self._log("🔄 Aba Mudança de Recurso pronta para operação.")
 
     def _cores(self, tema_nome):
-        return self.paletas.get(tema_nome, self.paletas.get("Conecta Blue", DEFAULT_PALETAS["Conecta Blue"]))
+        return self.paletas.get(tema_nome, self.paletas.get("Nexus", DEFAULT_PALETAS["Nexus"]))
 
     def _status(self, msg):
         if self.label_status_global:
@@ -142,7 +159,33 @@ class AbaMudancaRecurso:
             font=("Consolas", 13, "bold"),
             height=36
         )
-        self.ent_destino.pack(fill=tk.X, padx=15, pady=(0, 15))
+        self.ent_destino.pack(fill=tk.X, padx=15, pady=(0, 8))
+
+        # Ordem Destino (Opcional / Fallback) com Botão Testar IW39
+        self.lbl_ordem = ctk.CTkLabel(self.col_esquerda, text="Ordem Destino (opcional / fallback):", font=("Segoe UI", 12))
+        self.lbl_ordem.pack(anchor="w", padx=15, pady=(2, 2))
+
+        self.frame_ordem_row = ctk.CTkFrame(self.col_esquerda, fg_color="transparent")
+        self.frame_ordem_row.pack(fill=tk.X, padx=15, pady=(0, 15))
+
+        self.ent_ordem = ctk.CTkEntry(
+            self.frame_ordem_row,
+            placeholder_text="Auto na IW39 se vazio",
+            font=("Consolas", 12),
+            height=36
+        )
+        self.ent_ordem.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 6))
+
+        self.btn_validar_ordem = ctk.CTkButton(
+            self.frame_ordem_row,
+            text="🔍 Testar IW39",
+            width=105,
+            height=36,
+            command=self.acao_validar_ordem_destino,
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=6
+        )
+        self.btn_validar_ordem.pack(side=tk.RIGHT)
 
         # Painel de Parâmetros Fixos Padrão
         self.frame_badges = ctk.CTkFrame(self.col_esquerda, corner_radius=6)
@@ -193,6 +236,16 @@ class AbaMudancaRecurso:
         # Painel inferior de ações de log
         self.frame_acoes_log = ctk.CTkFrame(self.col_esquerda, fg_color="transparent")
         self.frame_acoes_log.pack(side=tk.BOTTOM, fill=tk.X, padx=15, pady=15)
+
+        self.btn_recuperar_z61 = ctk.CTkButton(
+            self.frame_acoes_log,
+            text="⚡ Concluir Saída Z61 (Recuperação)",
+            command=self.abrir_janela_recuperacao_z61,
+            font=("Segoe UI", 11, "bold"),
+            height=34,
+            corner_radius=6
+        )
+        self.btn_recuperar_z61.pack(fill=tk.X, pady=(0, 6))
 
         self.btn_salvar_log = ctk.CTkButton(
             self.frame_acoes_log,
@@ -261,6 +314,8 @@ class AbaMudancaRecurso:
         self.lbl_sec_equipes.configure(text_color=c["texto"])
         self.lbl_origem.configure(text_color=c["texto"])
         self.lbl_destino.configure(text_color=c["texto"])
+        if hasattr(self, "lbl_ordem"):
+            self.lbl_ordem.configure(text_color=c["texto"])
         self.lbl_badge_info.configure(text_color=c.get("accent", "#f57c00"))
         self.lbl_log_header.configure(text_color=c["texto"])
 
@@ -274,6 +329,24 @@ class AbaMudancaRecurso:
             text_color=c["texto"],
             border_color=c.get("accent", "#f57c00")
         )
+        if hasattr(self, "ent_ordem"):
+            self.ent_ordem.configure(
+                fg_color=c.get("container", "#172a45"),
+                text_color=c["texto"],
+                border_color=c.get("accent", "#f57c00")
+            )
+        if hasattr(self, "btn_validar_ordem"):
+            self.btn_validar_ordem.configure(
+                fg_color=c.get("container", "#172a45"),
+                hover_color=c.get("hover", "#e65100"),
+                text_color=c["texto"]
+            )
+        if hasattr(self, "btn_recuperar_z61"):
+            self.btn_recuperar_z61.configure(
+                fg_color="#dc2626",
+                hover_color="#b91c1c",
+                text_color="#ffffff"
+            )
 
         self.btn_consultar.configure(
             fg_color=c.get("container", "#172a45"),
@@ -361,6 +434,12 @@ class AbaMudancaRecurso:
         self.btn_executar.configure(state=estado)
         self.ent_origem.configure(state=estado)
         self.ent_destino.configure(state=estado)
+        if hasattr(self, "ent_ordem"):
+            self.ent_ordem.configure(state=estado)
+        if hasattr(self, "btn_validar_ordem"):
+            self.btn_validar_ordem.configure(state=estado)
+        if hasattr(self, "btn_recuperar_z61"):
+            self.btn_recuperar_z61.configure(state=estado)
 
         if bloqueado:
             self.progress_bar.set(0.0)
@@ -395,6 +474,7 @@ class AbaMudancaRecurso:
                 itens = mudanca_recurso.consultar_origem(sessao, origem, self._log_threadsafe)
                 
                 if itens:
+                    self.ultimos_itens = itens
                     self._log_threadsafe(f"\n📊 RESUMO DOS MATERIAIS ENCONTRADOS ({len(itens)} itens):\n")
                     for i, it in enumerate(itens):
                         ser_txt = f" [{len(it['Seriais'])} seriais]" if it.get("Seriais") else ""
@@ -403,6 +483,7 @@ class AbaMudancaRecurso:
                     show_toast(self.parent_frame, f"{len(itens)} itens encontrados para {origem}!", type="success")
                     play_sound("done")
                 else:
+                    self.ultimos_itens = []
                     self._log_threadsafe(f"⚠️ Nenhum material com saldo positivo encontrado para {origem}.")
                     self._status_threadsafe("Nenhum saldo positivo.")
             except Exception as e:
@@ -416,6 +497,51 @@ class AbaMudancaRecurso:
 
         threading.Thread(target=_worker, daemon=True).start()
 
+    def acao_validar_ordem_destino(self):
+        """Valida a equipe de destino na IW39 sem realizar nenhuma movimentação contábil."""
+        if self.executando:
+            messagebox.showwarning("Aviso", "Já existe um processo em execução.")
+            return
+
+        destino = self.ent_destino.get().strip().upper()
+        if not destino:
+            messagebox.showwarning("Aviso", "Por favor, informe a Equipe de Destino.")
+            return
+
+        if not mudanca_recurso:
+            messagebox.showerror("Erro", "Motor 'mudanca_recurso' não encontrado.")
+            return
+
+        self._bloquear_ui(True)
+        self._status(f"Consultando ordem ativa para {destino} na IW39...")
+        self._log(f"\n🔎 Testando consulta na IW39 para o recurso de destino '{destino}'...")
+
+        def _worker():
+            try:
+                import pythoncom
+                pythoncom.CoInitialize()
+                sessao = mudanca_recurso._conectar_sap()
+                ordem = mudanca_recurso.buscar_ordem_destino_iw39(sessao, destino, self._log_threadsafe)
+
+                def _atualizar():
+                    self.ent_ordem.delete(0, tk.END)
+                    self.ent_ordem.insert(0, ordem)
+                    show_toast(self.parent_frame, f"Ordem {ordem} localizada para {destino}!", type="success")
+                    play_sound("done")
+
+                self.parent_frame.after(0, _atualizar)
+                self._status_threadsafe(f"Ordem localizada: {ordem}")
+            except Exception as e:
+                log_error(f"Erro ao validar ordem de destino {destino}: {e}")
+                self._log_threadsafe(f"\n❌ AVISO IW39: {e}\n")
+                self._status_threadsafe("Ordem não localizada na IW39.")
+                play_sound("error")
+                messagebox.showwarning("Aviso IW39", f"Não foi possível localizar ordem ativa para {destino}:\n{e}")
+            finally:
+                self.parent_frame.after(0, lambda: self._bloquear_ui(False))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
     def acao_executar_mudanca(self):
         """Executa o ciclo completo de transferência Z62 -> IW39 -> Z61."""
         if self.executando:
@@ -424,6 +550,7 @@ class AbaMudancaRecurso:
 
         origem = self.ent_origem.get().strip().upper()
         destino = self.ent_destino.get().strip().upper()
+        ordem_manual = self.ent_ordem.get().strip() if hasattr(self, "ent_ordem") else ""
 
         if not origem or not destino:
             messagebox.showwarning("Aviso", "Informe a Equipe de Origem e a Equipe de Destino.")
@@ -437,13 +564,14 @@ class AbaMudancaRecurso:
             messagebox.showerror("Erro", "Motor 'mudanca_recurso' não encontrado.")
             return
 
+        desc_ordem = f"Ordem informada: {ordem_manual}" if ordem_manual else "Ordem ativa será pré-validada na IW39 antes do Z62"
         confirmado = messagebox.askyesno(
             "Confirmar Mudança de Recurso SAP",
             f"Você confirma a transferência integral de recursos no SAP?\n\n"
             f"📤 Origem: {origem} (Estorno Z62 das ordens antigas)\n"
-            f"📥 Destino: {destino} (Saída Z61 para a nova ordem IW39)\n\n"
+            f"📥 Destino: {destino} ({desc_ordem})\n\n"
             f"Centro: EMPR | Depósito: CL03 | Recebedor: EMPR 1CL03\n\n"
-            f"⚠️ Esta operação realiza movimentação contábil real no SAP.\n"
+            f"🛡️ SEGURANÇA: A ordem de destino será 100% validada antes de realizar qualquer estorno no SAP.\n"
             f"Deseja prosseguir?",
             parent=self.parent_frame.winfo_toplevel()
         )
@@ -464,7 +592,8 @@ class AbaMudancaRecurso:
                     recurso_novo=destino,
                     log_callback=self._log_threadsafe,
                     serial_callback=on_seriais,
-                    progresso_callback=self._progresso_threadsafe
+                    progresso_callback=self._progresso_threadsafe,
+                    ordem_destino_manual=ordem_manual
                 )
 
                 if resultado.get("status") == "sucesso":
@@ -497,6 +626,155 @@ class AbaMudancaRecurso:
                 self.parent_frame.after(0, lambda: self._bloquear_ui(False))
 
         threading.Thread(target=_worker, daemon=True).start()
+
+    def abrir_janela_recuperacao_z61(self):
+        """Abre janela para concluir a Saída MIGO Z61 em casos onde o estorno Z62 já foi realizado."""
+        win = ctk.CTkToplevel(self.parent_frame.winfo_toplevel())
+        win.title("⚡ Recuperação / Conclusão de Saída Z61")
+        win.geometry("680x520")
+        win.transient(self.parent_frame.winfo_toplevel())
+
+        c = self._cores(self.obter_tema_atual())
+        win.configure(fg_color=c.get("bg", "#0a192f"))
+
+        frame = ctk.CTkFrame(win, fg_color="transparent")
+        frame.pack(fill="both", expand=True, padx=20, pady=15)
+
+        ctk.CTkLabel(
+            frame,
+            text="⚡ Concluir Saída Z61 no Destino (Modo de Recuperação)",
+            font=("Segoe UI", 14, "bold"),
+            text_color="#ef4444"
+        ).pack(anchor="w", pady=(0, 4))
+
+        ctk.CTkLabel(
+            frame,
+            text="Utilize quando o estorno Z62 já tiver sido efetuado na origem e faltar apenas lançar a saída Z61 no destino.",
+            font=("Segoe UI", 11),
+            text_color="#94a3b8"
+        ).pack(anchor="w", pady=(0, 10))
+
+        # Linha Equipe e Ordem
+        f_top = ctk.CTkFrame(frame, fg_color="transparent")
+        f_top.pack(fill="x", pady=(0, 10))
+
+        ctk.CTkLabel(f_top, text="Recurso Destino:", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(0, 5))
+        ent_rec = ctk.CTkEntry(f_top, width=120, font=("Consolas", 12, "bold"))
+        ent_rec.pack(side="left", padx=(0, 15))
+        ent_rec.insert(0, self.ent_destino.get().strip().upper())
+
+        ctk.CTkLabel(f_top, text="Ordem Destino:", font=("Segoe UI", 12, "bold")).pack(side="left", padx=(0, 5))
+        ent_ord = ctk.CTkEntry(f_top, width=160, font=("Consolas", 12, "bold"))
+        ent_ord.pack(side="left", padx=(0, 10))
+        if hasattr(self, "ent_ordem") and self.ent_ordem.get().strip():
+            ent_ord.insert(0, self.ent_ordem.get().strip())
+
+        # Materiais / Itens
+        ctk.CTkLabel(
+            frame,
+            text="Itens a Imputar (Material;Qtd;Seriais separados por vírgula):",
+            font=("Segoe UI", 12, "bold")
+        ).pack(anchor="w", pady=(5, 2))
+
+        txt_itens = ctk.CTkTextbox(frame, font=("Consolas", 11), height=180)
+        txt_itens.pack(fill="both", expand=True, pady=(0, 10))
+
+        # Preenche se tivermos itens na memória da última consulta
+        if hasattr(self, "ultimos_itens") and self.ultimos_itens:
+            linhas_exemplo = []
+            for it in self.ultimos_itens:
+                sers = ",".join(it.get("Seriais", []))
+                linhas_exemplo.append(f"{it['Material']};{it['Quantidade']};{sers}")
+            txt_itens.insert("1.0", "\n".join(linhas_exemplo))
+        else:
+            txt_itens.insert("1.0", "# Formato por linha: COD_MATERIAL;QUANTIDADE;SERIAL1,SERIAL2\n# Exemplo:\n# 510388;2;18398041,18398042\n")
+
+        def executar_recuperacao():
+            rec = ent_rec.get().strip().upper()
+            ord_d = ent_ord.get().strip()
+            if not rec or not ord_d:
+                messagebox.showwarning("Aviso", "Informe o Recurso Destino e a Ordem Destino.", parent=win)
+                return
+
+            conteudo = txt_itens.get("1.0", tk.END).strip().splitlines()
+            itens_para_saida = []
+            for linha in conteudo:
+                linha = linha.strip()
+                if not linha or linha.startswith("#"):
+                    continue
+                partes = linha.split(";")
+                if len(partes) < 2:
+                    continue
+                mat = partes[0].strip()
+                qtd = partes[1].strip()
+                sers = [s.strip() for s in partes[2].split(",") if s.strip()] if len(partes) > 2 else []
+                itens_para_saida.append({
+                    "Material": mat,
+                    "Quantidade": qtd,
+                    "Seriais": sers,
+                    "Ordem Origem": ord_d
+                })
+
+            if not itens_para_saida:
+                messagebox.showwarning("Aviso", "Nenhum item válido informado na lista.", parent=win)
+                return
+
+            conf = messagebox.askyesno(
+                "Confirmar Saída Z61",
+                f"Deseja executar a MIGO Z61 para o recurso {rec} na ordem {ord_d} com {len(itens_para_saida)} item(ns)?",
+                parent=win
+            )
+            if not conf:
+                return
+
+            win.destroy()
+            self._bloquear_ui(True)
+            self._log(f"\n⚡ Iniciando Saída Z61 Direta de Recuperação para {rec} na ordem {ord_d}...")
+
+            def _w_rec():
+                try:
+                    import pythoncom
+                    pythoncom.CoInitialize()
+                    res = mudanca_recurso.executar_apenas_saida_z61(
+                        recurso_destino=rec,
+                        ordem_destino=ord_d,
+                        itens=itens_para_saida,
+                        log_callback=self._log_threadsafe,
+                        progresso_callback=self._progresso_threadsafe
+                    )
+                    self._status_threadsafe(f"Saída Z61 gerada com sucesso: {res.get('doc_z61')}")
+                    show_toast(self.parent_frame, f"Saída Z61 gerada: {res.get('doc_z61')}!", type="success")
+                    play_sound("done")
+                except Exception as ex:
+                    log_error(f"Erro na recuperação Z61: {ex}")
+                    self._log_threadsafe(f"\n❌ ERRO NA SAÍDA Z61: {ex}\n")
+                    play_sound("error")
+                    messagebox.showerror("Erro na Saída Z61", str(ex))
+                finally:
+                    self.parent_frame.after(0, lambda: self._bloquear_ui(False))
+
+            threading.Thread(target=_w_rec, daemon=True).start()
+
+        f_b = ctk.CTkFrame(frame, fg_color="transparent")
+        f_b.pack(fill="x", pady=(5, 0))
+
+        ctk.CTkButton(
+            f_b,
+            text="▶ Executar MIGO Z61",
+            command=executar_recuperacao,
+            font=("Segoe UI", 12, "bold"),
+            fg_color="#ef4444",
+            hover_color="#dc2626",
+            height=36
+        ).pack(side="left")
+
+        ctk.CTkButton(
+            f_b,
+            text="Cancelar",
+            command=win.destroy,
+            font=("Segoe UI", 11),
+            height=36
+        ).pack(side="right")
 
     def mostrar_seriais(self, serials):
         """Abre janela para conferência e cópia dos seriais transferidos."""

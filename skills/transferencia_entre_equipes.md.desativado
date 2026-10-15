@@ -1,0 +1,42 @@
+---
+name: transferir_entre_equipes
+description: "Prepara a Transferência de medidores/materiais entre equipes no módulo de Transferência entre Equipes (Z62 e Z61 no SAP). Valida se os seriais constam como FORNECIDOS na planilha, descobre a equipe de origem e prepara os dados para conferência prévia antes do envio ao SAP"
+triggers:
+  - transferencia entre equipes
+  - transferência entre equipes
+  - transferir entre equipes
+  - transferir medidores para
+  - transfere os medidores
+  - transfere medidores para
+  - transferir para o recurso
+  - transfere para o recurso
+  - transferir seriais para
+  - transferir materiais para
+  - transf equipes
+module: conecta_hub2
+action: transferir_entre_equipes
+parameters:
+  destino:
+    type: string
+    description: "Código da equipe/recurso de destino (ex: CVC395, CSC300)"
+    required: true
+  seriais:
+    type: string
+    description: "Seriais ou intervalo de medidores a serem transferidos (ex: '18398041 a 18398045')"
+    required: false
+---
+
+# Skill: Transferência entre Equipes (Z62 ➡️ Z61)
+
+Esta habilidade prepara a tela e os dados de Transferência entre Equipes:
+- O usuário informa a **Equipe de Destino** e a lista ou intervalo de seriais.
+- O sistema pesquisa cada serial na aba **FORNECIDOS** da planilha de controle:
+  - **Validação Rigorosa**: Se algum medidor NÃO constar como fornecido, ele é bloqueado e não segue para o SAP.
+  - **Identificação da Origem**: A equipe de origem e a OSME da origem de cada medidor são descobertas automaticamente a partir do registro em FORNECIDOS e CADASTRO.
+  - **Alerta de Mesma Equipe**: Se o medidor já pertencer à equipe de destino informada, o sistema alerta e bloqueia a transferência redundante.
+- Gera a lista de conferência WorkForce com finalizador `;` (1 serial por linha).
+- Prepara a sequência dupla no SAP MIGO:
+  1. **Z62 (Estorno para Estoque)** imputado à OSME de Origem.
+  2. **Z61 (Saída para Destino)** imputado à OSME de Destino.
+- Atualiza a planilha de controle removendo o registro anterior em FORNECIDOS e inserindo a nova saída com data e documento atualizados.
+- **Confirmação e Execução**: Após preparar os dados, o robô solicita confirmação ("Deseja processar a transferência no SAP agora?"). Quando o usuário responder "confirmo", "sim" ou "pode executar", a transferência é disparada no SAP MIGO automaticamente.

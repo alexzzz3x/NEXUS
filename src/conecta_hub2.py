@@ -1,5 +1,6 @@
 import os
 import sys
+import threading
 
 from utils_os import garantir_instancia_unica, obter_caminho_recurso, obter_diretorio_executavel
 
@@ -8,6 +9,12 @@ if __name__ == "__main__":
     _ok_instancia, _mutex_app = garantir_instancia_unica("Nexus_SAP_Hub_SingleInstance_Mutex")
     if not _ok_instancia:
         sys.exit(0)
+    # Limpa processos cscript.exe órfãos deixados por travamentos ou encerramentos forçados anteriores
+    try:
+        import subprocess
+        subprocess.run(["taskkill", "/F", "/IM", "cscript.exe"], capture_output=True)
+    except Exception:
+        pass
 
 import tkinter as tk
 from tkinter import ttk
@@ -15,12 +22,19 @@ import customtkinter as ctk
 
 from utils_ui import show_toast, play_sound, run_async
 from utils_logger import log_error, log_info
+from sidebar_navegacao import SidebarNavegacao
+from utils_updater import iniciar_checagem_atualizacao, checar_atualizacao_manual, VERSAO_ATUAL
 
 def global_exception_handler(exc_type, exc_value, exc_traceback):
     log_error(f"Uncaught exception: {exc_value}", exc_info=(exc_type, exc_value, exc_traceback))
     sys.__excepthook__(exc_type, exc_value, exc_traceback)
 
 sys.excepthook = global_exception_handler
+
+def tk_callback_exception_handler(self, exc_type, exc_value, exc_traceback):
+    log_error(f"Uncaught Tk callback exception: {exc_value}", exc_info=(exc_type, exc_value, exc_traceback))
+
+tk.Tk.report_callback_exception = tk_callback_exception_handler
 
 ctk.set_default_color_theme("blue")  # Tema padrao do CTK
 
@@ -35,7 +49,8 @@ def obter_arquivo_banco():
 ARQUIVO_BANCO = obter_arquivo_banco()
 
 PALETAS = {
-    "Conecta Blue": {"bg": "#0a192f", "container": "#172a45", "texto": "#ffffff", "accent": "#f57c00", "hover": "#e65100", "input": "#1f3a60", "scrollbar": "#5f7fa8", "scrollbar_hover": "#7fa2cf", "scrollbar_trough": "#10233d"},
+    "Nexus": {"bg": "#090d16", "container": "#111827", "texto": "#f8fafc", "accent": "#00d2ff", "hover": "#0284c7", "input": "#1a2436", "scrollbar": "#1e293b", "scrollbar_hover": "#00d2ff", "scrollbar_trough": "#090d16"},
+    "Azul Delray": {"bg": "#0a192f", "container": "#172a45", "texto": "#ffffff", "accent": "#38bdf8", "hover": "#0284c7", "input": "#1f3a60", "scrollbar": "#5f7fa8", "scrollbar_hover": "#7fa2cf", "scrollbar_trough": "#10233d"},
     "Dark Mode": {"bg": "#1a202c", "container": "#2d3748", "texto": "#ffffff", "accent": "#319795", "hover": "#2c7a7b", "input": "#3a4454", "scrollbar": "#64748b", "scrollbar_hover": "#94a3b8", "scrollbar_trough": "#202938"},
     "Light Clean": {"bg": "#ffffff", "container": "#f8f9fa", "texto": "#2d3748", "accent": "#319795", "hover": "#2c7a7b", "input": "#edf2f7", "scrollbar": "#94a3b8", "scrollbar_hover": "#64748b", "scrollbar_trough": "#e2e8f0"},
     "Corporate Slate": {"bg": "#111827", "container": "#1f2937", "texto": "#f9fafb", "accent": "#2563eb", "hover": "#1d4ed8", "input": "#374151", "scrollbar": "#6b7280", "scrollbar_hover": "#9ca3af", "scrollbar_trough": "#172033"},
@@ -44,6 +59,8 @@ PALETAS = {
     "Graphite Orange": {"bg": "#171717", "container": "#262626", "texto": "#fafafa", "accent": "#f97316", "hover": "#ea580c", "input": "#3f3f46", "scrollbar": "#737373", "scrollbar_hover": "#a3a3a3", "scrollbar_trough": "#202020"},
     "Royal Indigo": {"bg": "#17152b", "container": "#262447", "texto": "#ffffff", "accent": "#8b5cf6", "hover": "#7c3aed", "input": "#34315f", "scrollbar": "#8179bd", "scrollbar_hover": "#a69cf0", "scrollbar_trough": "#201d3b"},
 }
+# Compatibilidade transparente para módulos legados
+PALETAS["Conecta Blue"] = PALETAS["Azul Delray"]
 
 etiquetas_view = None
 sap_view = None
@@ -58,17 +75,24 @@ dashboard_view = None
 fichas_view = None
 plataforma_view = None
 consultar_migo_view = None
+saida_osme_view = None
+contagem_carro_view = None
+atualizar_osme_view = None
+contagem_deposito_view = None
+sidebar_navegacao = None
 
 def carregar_tema_salvo():
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 tema = f.read().strip()
+                if tema == "Conecta Blue":
+                    return "Azul Delray"
                 if tema in PALETAS:
                     return tema
         except Exception:
             pass
-    return "Conecta Blue"
+    return "Nexus"
 
 def salvar_tema_atual(tema_nome):
     try:
@@ -147,7 +171,7 @@ def aplicar_icone_janela(janela):
         pass
 
 def aplicar_tema(tema_nome):
-    c = PALETAS[tema_nome]
+    c = PALETAS.get(tema_nome, PALETAS["Nexus"])
     
     # Modern CTK mode
     if "Light" in tema_nome:
@@ -195,13 +219,22 @@ def aplicar_tema(tema_nome):
         pass
 
     frame_topo.configure(fg_color=c["bg"])
+    if 'bar_status' in globals() and bar_status:
+        bar_status.configure(fg_color=c["bg"])
     lbl_status.configure(text_color=c["texto"])
     lbl_sap_info.configure(text_color=c["texto"])
     lbl_creditos.configure(text_color=c["texto"])
     try:
-        lbl_sub_header.configure(text_color=c.get("scrollbar_hover", "#7fa2cf"))
+        lbl_sub_header.configure(text_color=c.get("scrollbar_hover", "#38bdf8"))
     except Exception:
         pass
+
+    if 'btn_chat' in globals() and btn_chat:
+        btn_chat.configure(
+            fg_color=c["accent"],
+            hover_color=c["hover"],
+            text_color="#090d16" if "Light" not in tema_nome else "#ffffff"
+        )
 
     if etiquetas_view: etiquetas_view.aplicar_tema(tema_nome)
     if sap_view: sap_view.aplicar_tema(tema_nome)
@@ -215,6 +248,11 @@ def aplicar_tema(tema_nome):
     if fichas_view: fichas_view.aplicar_tema(tema_nome)
     if plataforma_view: plataforma_view.aplicar_tema(tema_nome)
     if consultar_migo_view: consultar_migo_view.aplicar_tema(tema_nome)
+    if saida_osme_view: saida_osme_view.aplicar_tema(tema_nome)
+    if contagem_carro_view: contagem_carro_view.aplicar_tema(tema_nome)
+    if atualizar_osme_view: atualizar_osme_view.aplicar_tema(tema_nome)
+    if contagem_deposito_view: contagem_deposito_view.aplicar_tema(tema_nome)
+    if sidebar_navegacao: sidebar_navegacao.aplicar_tema(tema_nome)
 
 def atualizar_info_sap():
     """Consulta o status do SAP de forma 100% assíncrona, sem travar a interface gráfica."""
@@ -237,7 +275,7 @@ except Exception:
     pass
 
 root = ctk.CTk()
-root.title("N.E.X.U.S - Núcleo de estoque e extração unificada com o SAP")
+root.title("N.E.X.U.S")
 root.geometry("1160x700")
 root.withdraw() # Hide root initially for splash screen
 aplicar_icone_janela(root)
@@ -271,7 +309,7 @@ if __name__ == "__main__":
 lbl_splash_title = ctk.CTkLabel(splash, text="N.E.X.U.S", font=("Segoe UI", 32, "bold"), text_color="#00d4ff")
 lbl_splash_title.pack(expand=True, pady=(50, 0))
 
-lbl_splash_sub = ctk.CTkLabel(splash, text="Núcleo de estoque e extração unificada com o SAP", font=("Segoe UI", 11), text_color="#90cdf4")
+lbl_splash_sub = ctk.CTkLabel(splash, text="Núcleo de Estoque e Extração Unificada com o SAP", font=("Segoe UI", 11), text_color="#90cdf4")
 lbl_splash_sub.pack(pady=(0, 15))
 
 lbl_splash_loading = ctk.CTkLabel(splash, text="Carregando Módulos...", font=("Segoe UI", 12), text_color="white")
@@ -310,41 +348,23 @@ lbl_title.pack(side=tk.LEFT, padx=(0, 6))
 lbl_sub_header = ctk.CTkLabel(frame_topo, text="• Núcleo de Estoque e Extração Unificada SAP", font=("Segoe UI", 12), text_color="#7fa2cf")
 lbl_sub_header.pack(side=tk.LEFT, padx=(0, 10), pady=(4, 0))
 
-combo_temas = ctk.CTkComboBox(frame_topo, values=list(PALETAS.keys()), command=aplicar_tema, width=160, font=("Segoe UI", 12))
+combo_temas = ctk.CTkComboBox(frame_topo, values=[k for k in PALETAS.keys() if k != "Conecta Blue"], command=aplicar_tema, width=160, font=("Segoe UI", 12))
 combo_temas.set(tema_inicial)
 combo_temas.pack(side=tk.RIGHT, padx=20, pady=15)
 
-# NOTEBOOK (TABS)
-notebook = ctk.CTkTabview(root, corner_radius=8)
-notebook.pack(fill=tk.BOTH, expand=True, padx=15, pady=5)
-
-tab_name_home = "🏠 Início"
-tab_name_gerador = "🎫 Etiquetas"
-tab_name_extrator = "🔢 Extrator Seriais"
-tab_name_sap = "🔑 Login SAP"
-tab_name_bandeirada = "🚩 BANDEIRADA"
-tab_name_osme = "📄 OSME"
-tab_name_transfosme = "📦 Transf. OSME"
-tab_name_mudanca = "🔄 Mudança Recurso"
-tab_name_zm02 = "⚙️ Entrada ZM02"
-tab_name_conferencia = "📦 Conferencia"
-tab_name_fichas = "📋 Fichas"
-tab_name_plataforma = "📈 Relatório Plataforma"
-tab_name_consultar_migo = "🔍 Consultar MIGO"
-
-tab_home = notebook.add(tab_name_home)
-tab_gerador = notebook.add(tab_name_gerador)
-tab_extrator = notebook.add(tab_name_extrator)
-tab_sap = notebook.add(tab_name_sap)
-tab_bandeirada = notebook.add(tab_name_bandeirada)
-tab_osme = notebook.add(tab_name_osme)
-tab_transfosme = notebook.add(tab_name_transfosme)
-tab_mudanca = notebook.add(tab_name_mudanca)
-tab_conferencia = notebook.add(tab_name_conferencia)
-tab_zm02 = notebook.add(tab_name_zm02)
-tab_fichas = notebook.add(tab_name_fichas)
-tab_plataforma = notebook.add(tab_name_plataforma)
-tab_consultar_migo = notebook.add(tab_name_consultar_migo)
+btn_ver_atualizacao = ctk.CTkButton(
+    frame_topo,
+    text=f"🔄 v{VERSAO_ATUAL}",
+    font=("Segoe UI", 11, "bold"),
+    width=75,
+    height=28,
+    corner_radius=6,
+    fg_color="#1e293b",
+    hover_color="#334155",
+    text_color="#38bdf8",
+    command=lambda: checar_atualizacao_manual(root, PALETAS, obter_tema_atual)
+)
+btn_ver_atualizacao.pack(side=tk.RIGHT, padx=(0, 6), pady=15)
 
 # STATUS BAR
 bar_status = ctk.CTkFrame(root, height=30, corner_radius=0)
@@ -359,9 +379,116 @@ lbl_sap_info.pack(side="left", padx=20, pady=2)
 lbl_creditos = ctk.CTkLabel(bar_status, text="2026 Desenvolvido por 🟢 Anderson Vieira™", font=("Segoe UI", 11, "italic"))
 lbl_creditos.pack(side="right", padx=10, pady=2)
 
+# CORPO PRINCIPAL (Sidebar à esquerda + Área de Conteúdo à direita)
+frame_corpo = ctk.CTkFrame(root, corner_radius=0, fg_color="transparent")
+frame_corpo.pack(side="top", fill=tk.BOTH, expand=True, padx=0, pady=0)
+
+tab_name_home = "🏠 Início"
+tab_name_gerador = "🎫 Etiquetas"
+tab_name_extrator = "🔢 Extrator Seriais"
+tab_name_sap = "🔑 Login SAP"
+tab_name_bandeirada = "🚩 BANDEIRADA"
+tab_name_osme = "📄 OSME"
+tab_name_transfosme = "📦 Transf. OSME"
+tab_name_mudanca = "🔄 Mudança Recurso"
+tab_name_zm02 = "⚙️ Entrada ZM02"
+tab_name_conferencia = "📦 Conferencia"
+tab_name_fichas = "📋 Fichas"
+tab_name_plataforma = "📈 Relatório Plataforma"
+tab_name_consultar_migo = "🔍 Consultar MIGO"
+tab_name_saida_osme = "📤 Saída OSME"
+tab_name_contagem_carro = "🚗 Contagem de Carro"
+tab_name_atualizar_osme = "🔄 Atualizar OSME"
+tab_name_contagem_deposito = "🏢 Contagem Depósito"
+
+CATEGORIAS_SIDEBAR = [
+    {
+        "nome": "PRINCIPAL",
+        "itens": [
+            ("🏠", "Início", tab_name_home),
+        ]
+    },
+    {
+        "nome": "OPERAÇÕES SAP",
+        "itens": [
+            ("🔑", "Login SAP", tab_name_sap),
+            ("🚩", "BANDEIRADA", tab_name_bandeirada),
+            ("📄", "OSME", tab_name_osme),
+            ("🔄", "Atualizar OSME", tab_name_atualizar_osme),
+            ("📤", "Saída OSME", tab_name_saida_osme),
+            ("📦", "Transf. OSME", tab_name_transfosme),
+            ("🔍", "Consultar MIGO", tab_name_consultar_migo),
+            ("⚙️", "Entrada ZM02", tab_name_zm02),
+            ("🔄", "Mudança Recurso", tab_name_mudanca),
+        ]
+    },
+    {
+        "nome": "ALMOXARIFADO & EQUIPES",
+        "itens": [
+            ("🏢", "Contagem Depósito", tab_name_contagem_deposito),
+            ("🚗", "Contagem de Carro", tab_name_contagem_carro),
+            ("📦", "Conferência", tab_name_conferencia),
+            ("📋", "Fichas WorkForce", tab_name_fichas),
+        ]
+    },
+    {
+        "nome": "FERRAMENTAS & ETIQUETAS",
+        "itens": [
+            ("🎫", "Etiquetas", tab_name_gerador),
+            ("🔢", "Extrator Seriais", tab_name_extrator),
+            ("📈", "Relatório Plataforma", tab_name_plataforma),
+        ]
+    },
+]
+
+# 1. SIDEBAR LATERAL (Empacotada primeiro no lado esquerdo do frame_corpo)
+sidebar_navegacao = SidebarNavegacao(
+    frame_corpo,
+    notebook=None,
+    categorias=CATEGORIAS_SIDEBAR,
+    paletas=PALETAS,
+    obter_tema_atual=obter_tema_atual
+)
+
+# 2. CONTAINER DO CONTEÚDO (Empacotado à esquerda, expandindo e ocupando todo o espaço restante)
+frame_conteudo = ctk.CTkFrame(frame_corpo, corner_radius=0, fg_color="transparent")
+frame_conteudo.pack(side="left", fill=tk.BOTH, expand=True, padx=(4, 10), pady=(0, 4))
+
+# 3. NOTEBOOK (TABS) inserido no frame_conteudo, com segmented_button 100% suprimido
+notebook = ctk.CTkTabview(frame_conteudo, corner_radius=8)
+notebook._set_grid_segmented_button = lambda: None
+notebook.grid_rowconfigure(0, weight=0, minsize=0)
+notebook.grid_rowconfigure(1, weight=0, minsize=0)
+notebook.grid_rowconfigure(2, weight=0, minsize=0)
+notebook.pack(fill=tk.BOTH, expand=True, padx=0, pady=0)
+
+tab_home = notebook.add(tab_name_home)
+tab_gerador = notebook.add(tab_name_gerador)
+tab_extrator = notebook.add(tab_name_extrator)
+tab_sap = notebook.add(tab_name_sap)
+tab_bandeirada = notebook.add(tab_name_bandeirada)
+tab_osme = notebook.add(tab_name_osme)
+tab_transfosme = notebook.add(tab_name_transfosme)
+tab_mudanca = notebook.add(tab_name_mudanca)
+tab_conferencia = notebook.add(tab_name_conferencia)
+tab_zm02 = notebook.add(tab_name_zm02)
+tab_fichas = notebook.add(tab_name_fichas)
+tab_plataforma = notebook.add(tab_name_plataforma)
+tab_consultar_migo = notebook.add(tab_name_consultar_migo)
+tab_saida_osme = notebook.add(tab_name_saida_osme)
+tab_contagem_carro = notebook.add(tab_name_contagem_carro)
+tab_atualizar_osme = notebook.add(tab_name_atualizar_osme)
+tab_contagem_deposito = notebook.add(tab_name_contagem_deposito)
+
+notebook._segmented_button.grid_forget()
+
+# Vincula o notebook preenchido à sidebar e seleciona a tela inicial
+sidebar_navegacao.vincular_notebook(notebook)
+sidebar_navegacao.selecionar_aba(tab_name_home, trocar_notebook=True)
+
 # ================== INICIALIZAÇAO ASSÍNCRONA E NÃO-BLOQUEANTE DOS MÓDULOS ==================
 def inicializar_modulos():
-    global dashboard_view, etiquetas_view, extrator_view, sap_view, bandeirada_view, osme_view, transferenciaosme_view, conferencia_view, zm02_view, fichas_view, consultar_migo_view
+    global dashboard_view, etiquetas_view, extrator_view, sap_view, bandeirada_view, osme_view, transferenciaosme_view, conferencia_view, zm02_view, fichas_view, consultar_migo_view, saida_osme_view, contagem_carro_view, atualizar_osme_view, contagem_deposito_view
 
     # Importações pesadas só começam depois que o splash já foi desenhado.
     global construir_aba_sap, obter_info_sap_atual, consultar_info_sap_async
@@ -370,7 +497,8 @@ def inicializar_modulos():
     global construir_aba_extrair_osme, construir_aba_extrator, JanelaChat
     global construir_aba_zmcse003, construir_aba_transferencia_osme
     global construir_aba_mudanca_recurso, construir_aba_dashboard, construir_aba_fichas, construir_aba_plataforma
-    global construir_aba_consultar_migo
+    global construir_aba_consultar_migo, construir_aba_saida_osme
+    global construir_aba_contagem_carro, construir_aba_atualizar_osme, construir_aba_contagem_deposito
     from modulo_Sap import construir_aba_sap, obter_info_sap_atual, consultar_info_sap_async
     from modulo_bandeirada import construir_aba_bandeirada
     from modulo_conferencia import construir_aba_conferencia
@@ -385,6 +513,10 @@ def inicializar_modulos():
     from modulo_fichas import construir_aba_fichas
     from modulo_plataforma import construir_aba_plataforma
     from modulo_consultar_migo import construir_aba_consultar_migo
+    from modulo_saida_osme import construir_aba_saida_osme
+    from modulo_contagem_carro import construir_aba_contagem_carro
+    from modulo_atualizar_osme import construir_aba_atualizar_osme
+    from modulo_contagem_deposito import construir_aba_contagem_deposito
 
     def etapa_1():
         global dashboard_view
@@ -433,23 +565,66 @@ def inicializar_modulos():
         lbl_splash_loading.configure(text="Carregando Bandeirada e OSME...")
         try:
             bandeirada_view = construir_aba_bandeirada(tab_bandeirada, lbl_status, PALETAS, obter_tema_atual)
+        except Exception as e:
+            log_error(f"Erro ao carregar Bandeirada: {e}")
+
+        try:
             osme_view = construir_aba_extrair_osme(tab_osme, lbl_status, PALETAS, obter_tema_atual)
         except Exception as e:
-            log_error(f"Erro ao carregar Bandeirada/OSME: {e}")
+            log_error(f"Erro ao carregar OSME: {e}")
+
         root.after(10, etapa_6)
 
     def etapa_6():
-        global transferenciaosme_view, conferencia_view, zm02_view, mudanca_recurso_view, consultar_migo_view
+        global transferenciaosme_view, conferencia_view, zm02_view, mudanca_recurso_view, consultar_migo_view, saida_osme_view, contagem_carro_view, atualizar_osme_view
         splash_progress.set(0.95)
-        lbl_splash_loading.configure(text="Carregando Mudança de Recurso, ZM02, Conferência e Consultar MIGO...")
+        lbl_splash_loading.configure(text="Carregando Módulos Finais e Atualização OSME...")
+
         try:
             transferenciaosme_view = construir_aba_transferencia_osme(tab_transfosme, lbl_status, PALETAS, obter_tema_atual)
+        except Exception as e:
+            log_error(f"Erro ao carregar Transf. OSME: {e}")
+
+        try:
             mudanca_recurso_view = construir_aba_mudanca_recurso(tab_mudanca, lbl_status, PALETAS, obter_tema_atual)
+        except Exception as e:
+            log_error(f"Erro ao carregar Mudança de Recurso: {e}")
+
+        try:
             conferencia_view = construir_aba_conferencia(tab_conferencia, lbl_status, PALETAS, obter_tema_atual)
+        except Exception as e:
+            log_error(f"Erro ao carregar Conferência: {e}")
+
+        try:
             zm02_view = construir_aba_zmcse003(tab_zm02, PALETAS, obter_tema_atual)
+        except Exception as e:
+            log_error(f"Erro ao carregar ZM02: {e}")
+
+        try:
             consultar_migo_view = construir_aba_consultar_migo(tab_consultar_migo, lbl_status, PALETAS, obter_tema_atual)
         except Exception as e:
-            log_error(f"Erro ao carregar módulos finais: {e}")
+            log_error(f"Erro ao carregar Consultar MIGO: {e}")
+
+        try:
+            saida_osme_view = construir_aba_saida_osme(tab_saida_osme, lbl_status, PALETAS, obter_tema_atual)
+        except Exception as e:
+            log_error(f"Erro ao carregar Saída OSME: {e}")
+
+        try:
+            contagem_carro_view = construir_aba_contagem_carro(tab_contagem_carro, lbl_status, PALETAS, obter_tema_atual)
+        except Exception as e:
+            log_error(f"Erro ao carregar Contagem de Carro: {e}")
+
+        try:
+            atualizar_osme_view = construir_aba_atualizar_osme(tab_atualizar_osme, lbl_status, PALETAS, obter_tema_atual)
+        except Exception as e:
+            log_error(f"Erro ao carregar Atualizar OSME: {e}")
+
+        try:
+            contagem_deposito_view = construir_aba_contagem_deposito(tab_contagem_deposito, lbl_status, PALETAS, obter_tema_atual)
+        except Exception as e:
+            log_error(f"Erro ao carregar Contagem de Depósito: {e}")
+
         root.after(10, etapa_final)
 
     def etapa_final():
@@ -458,21 +633,51 @@ def inicializar_modulos():
 
         def _finalizar_splash():
             try:
+                root.deiconify()
+                root.lift()
+                root.focus_force()
+            except Exception as e:
+                log_error(f"Erro ao exibir janela principal: {e}")
+            try:
                 splash.destroy()
             except Exception:
                 pass
-            root.deiconify()
-            aplicar_icone_janela(root)
-            root.lift()
-            show_toast(root, "N.E.X.U.S pronto!", duration=2000, type="success")
-            play_sound("done")
-            root.after(400, atualizar_info_sap)
+            try:
+                aplicar_icone_janela(root)
+            except Exception:
+                pass
+            try:
+                aplicar_tema(obter_tema_atual())
+            except Exception:
+                pass
+            try:
+                show_toast(root, "N.E.X.U.S pronto!", duration=2000, type="success")
+                play_sound("done")
+            except Exception:
+                pass
+            try:
+                root.after(400, atualizar_info_sap)
+            except Exception:
+                pass
+            try:
+                root.after(2500, lambda: iniciar_checagem_atualizacao(root, PALETAS, obter_tema_atual))
+            except Exception:
+                pass
 
         root.after(60, _finalizar_splash)
 
     # O formulário é local e não depende do SAP; inicializa junto ao restante da UI.
-    fichas_view = construir_aba_fichas(tab_fichas, PALETAS, obter_tema_atual)
-    plataforma_view = construir_aba_plataforma(tab_plataforma, lbl_status, PALETAS, obter_tema_atual)
+    try:
+        fichas_view = construir_aba_fichas(tab_fichas, PALETAS, obter_tema_atual)
+    except Exception as e:
+        log_error(f"Erro ao carregar Fichas: {e}")
+        fichas_view = None
+
+    try:
+        plataforma_view = construir_aba_plataforma(tab_plataforma, lbl_status, PALETAS, obter_tema_atual)
+    except Exception as e:
+        log_error(f"Erro ao carregar Plataforma: {e}")
+        plataforma_view = None
 
     # Dá ao sistema uma oportunidade de pintar o splash antes dos imports pesados.
     root.after(120, etapa_1)
@@ -485,6 +690,8 @@ def _trocar_aba(tab):
     def _set():
         try:
             notebook.set(tab)
+            if sidebar_navegacao:
+                sidebar_navegacao.selecionar_aba(tab, trocar_notebook=False)
         except Exception:
             pass
     root.after(0, _set)
@@ -783,6 +990,404 @@ def _copiar_seriais_chat():
     root.after(0, _copiar)
     return {"status": "Seriais copiados para a área de transferência com sucesso!"}
 
+def _executar_bandeirada_chat(recursos):
+    if isinstance(recursos, str):
+        import re
+        lista = [r.strip().upper() for r in re.split(r"[,;\s\n]+", recursos) if r.strip()]
+    elif isinstance(recursos, list):
+        lista = [str(r).strip().upper() for r in recursos if str(r).strip()]
+    else:
+        return {"erro": "Formato de recursos/equipes inválido."}
+
+    if not lista:
+        return {"erro": "Informe ao menos um recurso/equipe para bandeirada."}
+
+    from modulo_Sap import verificar_sap_aberto
+    if not verificar_sap_aberto():
+        return {"erro": "O SAP precisa estar aberto para executar a Bandeirada. Abra o SAP e tente novamente."}
+
+    def _iniciar():
+        try:
+            _trocar_aba(tab_name_bandeirada)
+            if bandeirada_view:
+                bandeirada_view.txt_recursos.delete("1.0", tk.END)
+                bandeirada_view.txt_recursos.insert("1.0", "\n".join(lista))
+                bandeirada_view.iniciar_bandeirada()
+        except Exception:
+            pass
+
+    root.after(0, _iniciar)
+    return {
+        "status": f"Processo de Bandeirada iniciado no SAP para: {', '.join(lista)}",
+        "equipes": lista
+    }
+
+def _extrair_osme_chat(recursos):
+    if isinstance(recursos, str):
+        import re
+        lista = [r.strip().upper() for r in re.split(r"[,;\s\n]+", recursos) if r.strip()]
+    elif isinstance(recursos, list):
+        lista = [str(r).strip().upper() for r in recursos if str(r).strip()]
+    else:
+        return {"erro": "Formato de recursos/equipes inválido."}
+
+    if not lista:
+        return {"erro": "Informe ao menos um recurso/equipe para extração de OSME."}
+
+    from modulo_Sap import verificar_sap_aberto
+    if not verificar_sap_aberto():
+        return {"erro": "O SAP precisa estar aberto para extrair OSME. Abra o SAP e tente novamente."}
+
+    def _iniciar():
+        try:
+            _trocar_aba(tab_name_osme)
+            if osme_view:
+                osme_view.txt_recursos.delete("1.0", tk.END)
+                osme_view.txt_recursos.insert("1.0", "\n".join(lista))
+                osme_view.iniciar_extracao()
+        except Exception:
+            pass
+
+    root.after(0, _iniciar)
+    return {
+        "status": f"Extração de OSME iniciada no SAP para: {', '.join(lista)}",
+        "equipes": lista
+    }
+
+def _consultar_migo_chat(equipe, ordem=""):
+    eq = str(equipe).strip().upper()
+    if not eq:
+        return {"erro": "Informe o código da equipe (ex: RCL001, RCL002)."}
+
+    from modulo_Sap import verificar_sap_aberto
+    if not verificar_sap_aberto():
+        return {"erro": "O SAP precisa estar aberto para consultar a MIGO. Abra o SAP e tente novamente."}
+
+    def _consultar():
+        try:
+            _trocar_aba(tab_name_consultar_migo)
+            if consultar_migo_view:
+                consultar_migo_view._selecionar_equipe(eq)
+                if ordem:
+                    consultar_migo_view.entry_ordem.delete(0, tk.END)
+                    consultar_migo_view.entry_ordem.insert(0, str(ordem).strip())
+                consultar_migo_view.iniciar_fluxo_completo()
+        except Exception:
+            pass
+
+    root.after(0, _consultar)
+    detalhe_ordem = f" (Ordem: {ordem})" if ordem else ""
+    return {
+        "status": f"Consulta IW39 ➡️ MIGO disparada no SAP para a equipe {eq}{detalhe_ordem}",
+        "equipe": eq
+    }
+
+def _transferir_osme_chat(equipes, data_lancamento=None):
+    if isinstance(equipes, str):
+        import re
+        lista = [r.strip().upper() for r in re.split(r"[,;\s\n]+", equipes) if r.strip()]
+    elif isinstance(equipes, list):
+        lista = [str(r).strip().upper() for r in equipes if str(r).strip()]
+    else:
+        return {"erro": "Formato de equipes inválido."}
+
+    if not lista:
+        return {"erro": "Informe as equipes para transferência de OSME."}
+
+    def _executar():
+        try:
+            _trocar_aba(tab_name_transfosme)
+            if transferenciaosme_view:
+                if data_lancamento and hasattr(transferenciaosme_view, "entry_data_lancamento"):
+                    transferenciaosme_view.entry_data_lancamento.delete(0, tk.END)
+                    transferenciaosme_view.entry_data_lancamento.insert(0, str(data_lancamento).strip())
+                transferenciaosme_view.txt_equipes.delete("1.0", tk.END)
+                transferenciaosme_view.txt_equipes.insert("1.0", "\n".join(lista))
+                transferenciaosme_view.iniciar_transferencia()
+        except Exception:
+            pass
+
+    root.after(0, _executar)
+    return {
+        "status": f"Transferência de OSME disparada para {len(lista)} equipe(s): {', '.join(lista)}.",
+        "equipes": lista
+    }
+
+def _mudar_recurso_chat(origem, destino="", acao="consultar"):
+    origem = str(origem).strip().upper()
+    destino = str(destino).strip().upper() if destino else ""
+    if not origem:
+        return {"erro": "Informe ao menos a equipe de origem."}
+
+    def _aplicar():
+        try:
+            _trocar_aba(tab_name_mudanca)
+            if mudanca_recurso_view:
+                mudanca_recurso_view.ent_origem.delete(0, tk.END)
+                mudanca_recurso_view.ent_origem.insert(0, origem)
+                if destino:
+                    mudanca_recurso_view.ent_destino.delete(0, tk.END)
+                    mudanca_recurso_view.ent_destino.insert(0, destino)
+                if acao == "consultar":
+                    mudanca_recurso_view.acao_consultar_origem()
+                elif acao == "executar" and destino:
+                    mudanca_recurso_view.acao_executar_mudanca()
+        except Exception:
+            pass
+
+    root.after(0, _aplicar)
+    msg_acao = f"Consulta de saldo da equipe {origem} iniciada" if acao == "consultar" else f"Mudança de recurso {origem} ➡️ {destino} preparada"
+    return {"status": msg_acao, "origem": origem, "destino": destino}
+
+def _abrir_conferencia_chat(base="", fisico=""):
+    def _abrir():
+        try:
+            _trocar_aba(tab_name_conferencia)
+            if conferencia_view:
+                if base:
+                    conferencia_view.txt_base.delete("1.0", tk.END)
+                    conferencia_view.txt_base.insert("1.0", str(base))
+                if fisico:
+                    conferencia_view.txt_fisico.delete("1.0", tk.END)
+                    conferencia_view.txt_fisico.insert("1.0", str(fisico))
+                if base and fisico:
+                    conferencia_view.comparar()
+        except Exception:
+            pass
+    root.after(0, _abrir)
+    return {"status": "Módulo de Conferência aberto e pronto para verificação."}
+
+def _abrir_fichas_chat(re="", recurso=""):
+    def _abrir():
+        try:
+            _trocar_aba(tab_name_fichas)
+            if fichas_view:
+                if re and hasattr(fichas_view, "campo_re_eletricista_1"):
+                    fichas_view.campo_re_eletricista_1.delete(0, tk.END)
+                    fichas_view.campo_re_eletricista_1.insert(0, str(re).strip())
+                if recurso and hasattr(fichas_view, "campo_recurso"):
+                    fichas_view.campo_recurso.delete(0, tk.END)
+                    fichas_view.campo_recurso.insert(0, str(recurso).strip().upper())
+        except Exception:
+            pass
+    root.after(0, _abrir)
+    detalhes = []
+    if re: detalhes.append(f"RE: {re}")
+    if recurso: detalhes.append(f"Recurso: {recurso}")
+    det_txt = f" ({', '.join(detalhes)})" if detalhes else ""
+    return {"status": f"Módulo Fichas aberto{det_txt}."}
+
+def _abrir_modulo_chat(modulo):
+    m = str(modulo).lower().strip()
+    mapa_abas = {
+        "bandeirada": tab_name_bandeirada,
+        "bandeira": tab_name_bandeirada,
+        "osme": tab_name_osme,
+        "extrair osme": tab_name_osme,
+        "migo": tab_name_consultar_migo,
+        "consultar migo": tab_name_consultar_migo,
+        "clandestina": tab_name_consultar_migo,
+        "clandestinas": tab_name_consultar_migo,
+        "etiqueta": tab_name_gerador,
+        "etiquetas": tab_name_gerador,
+        "gerador": tab_name_gerador,
+        "extrator": tab_name_extrator,
+        "seriais": tab_name_extrator,
+        "sap": tab_name_sap,
+        "login sap": tab_name_sap,
+        "login": tab_name_sap,
+        "transfosme": tab_name_transfosme,
+        "transf osme": tab_name_transfosme,
+        "transferencia osme": tab_name_transfosme,
+        "transferência osme": tab_name_transfosme,
+        "mudanca": tab_name_mudanca,
+        "mudança": tab_name_mudanca,
+        "mudanca recurso": tab_name_mudanca,
+        "mudança recurso": tab_name_mudanca,
+        "conferencia": tab_name_conferencia,
+        "conferência": tab_name_conferencia,
+        "zm02": tab_name_zm02,
+        "entrada zm02": tab_name_zm02,
+        "zmcse003": tab_name_zm02,
+        "ficha": tab_name_fichas,
+        "fichas": tab_name_fichas,
+        "plataforma": tab_name_plataforma,
+        "relatorio plataforma": tab_name_plataforma,
+        "saida osme": tab_name_saida_osme,
+        "saída osme": tab_name_saida_osme,
+        "saida para osme": tab_name_saida_osme,
+        "saída para osme": tab_name_saida_osme,
+        "contagem carro": tab_name_contagem_carro,
+        "contagem de carro": tab_name_contagem_carro,
+        "contagem veiculo": tab_name_contagem_carro,
+        "contagem de veiculo": tab_name_contagem_carro,
+        "balanco carro": tab_name_contagem_carro,
+        "balanço carro": tab_name_contagem_carro,
+        "carro": tab_name_contagem_carro,
+        "atualizar osme": tab_name_atualizar_osme,
+        "atualizacao osme": tab_name_atualizar_osme,
+        "atualização osme": tab_name_atualizar_osme,
+        "atualizar vencimento": tab_name_atualizar_osme,
+        "contagem deposito": tab_name_contagem_deposito,
+        "contagem de deposito": tab_name_contagem_deposito,
+        "contagem depósito": tab_name_contagem_deposito,
+        "contagem de depósito": tab_name_contagem_deposito,
+        "rotativo": tab_name_contagem_deposito,
+        "lote 0": tab_name_contagem_deposito,
+        "home": tab_name_home,
+        "inicio": tab_name_home,
+        "início": tab_name_home,
+        "dashboard": tab_name_home,
+    }
+    aba_alvo = None
+    for k, v in mapa_abas.items():
+        if k in m or m in k:
+            aba_alvo = v
+            break
+    if not aba_alvo:
+        aba_alvo = tab_name_home
+
+    _trocar_aba(aba_alvo)
+    return {"status": f"Aba alterada para: {aba_alvo}"}
+
+def _consultar_iq09_chat(seriais=None):
+    from modulo_extrator import extrair_lista_seriais, consultar_medidor_iq09_sap, JanelaDetalheMedidor, JanelaMultiplosMedidores
+    from modulo_Sap import verificar_sap_aberto
+
+    seriais_extraidos = []
+    if seriais:
+        seriais_extraidos = extrair_lista_seriais(seriais)
+
+    # Se não passou parâmetro direto mas há seriais já extraídos na aba Extrator, utiliza-os
+    if not seriais_extraidos and extrator_view:
+        try:
+            lista_aba = extrator_view._obter_lista_sem_ponto_virgula()
+            if lista_aba:
+                seriais_extraidos = lista_aba
+        except Exception:
+            pass
+
+    if not seriais_extraidos:
+        return {"erro": "Informe o número do medidor, serial ou intervalo (ex: '18400025 a 18400028') para pesquisar na IQ09."}
+
+    if not verificar_sap_aberto():
+        return {"erro": "O SAP precisa estar aberto para pesquisar na IQ09. Abra o SAP e tente novamente."}
+
+    # Executa a consulta no SAP diretamente (já estamos na thread de background do chatbot)
+    resultado = consultar_medidor_iq09_sap(seriais_extraidos)
+    if "erro" in resultado:
+        return resultado
+
+    # Abre o Pop-up na interface principal (thread do Tkinter)
+    lista = resultado.get("lista_medidores", [])
+    dados = resultado.get("dados_medidor")
+
+    def _abrir_popup():
+        try:
+            if len(lista) > 1:
+                JanelaMultiplosMedidores(root, lista, PALETAS, obter_tema_atual)
+            elif dados:
+                JanelaDetalheMedidor(root, dados, PALETAS, obter_tema_atual)
+        except Exception as e:
+            print(f"[CHAT] Erro ao abrir pop-up da IQ09: {e}")
+
+    root.after(0, _abrir_popup)
+    return resultado
+
+def _saida_osme_chat(equipe=None, seriais=None, material=None, quantidade=None, material_ns=None, quantidade_ns=None):
+    if not saida_osme_view:
+        return {"erro": "Módulo Saída OSME ainda não foi inicializado."}
+
+    mat_final = material_ns if material_ns is not None else material
+    qtd_final = quantidade_ns if quantidade_ns is not None else quantidade
+
+    resultado = {}
+    ev = threading.Event()
+
+    def _exec():
+        try:
+            _trocar_aba(tab_name_saida_osme)
+            res = saida_osme_view.preparar_saida_via_chat(
+                equipe=equipe,
+                seriais=seriais,
+                material_ns=mat_final,
+                quantidade_ns=qtd_final
+            )
+            resultado.update(res)
+        except Exception as e:
+            resultado["erro"] = str(e)
+        finally:
+            ev.set()
+
+    root.after(0, _exec)
+    ev.wait(timeout=5.0)
+
+    if "erro" in resultado:
+        return resultado
+
+    mats_resumo = resultado.get("resumo_materiais", [])
+    txt_mats = "\n".join([f"  ▸ {m}" for m in mats_resumo]) if mats_resumo else "  (Nenhum material adicionado)"
+    alerta_bloqueio = "\n⚠️ **ATENÇÃO: Existem itens BLOQUEADOS (já constam como fornecidos)!**" if resultado.get("tem_bloqueados") else ""
+
+    msg = (
+        f"📋 **Dados preparados na aba Saída OSME:**\n\n"
+        f"• **Equipe**: `{resultado.get('equipe', '-')}`\n"
+        f"• **OSME**: `{resultado.get('osme', '-')}`\n"
+        f"• **Depósito**: `{resultado.get('deposito', '-')}`\n\n"
+        f"**Materiais a processar:**\n{txt_mats}\n"
+        f"{alerta_bloqueio}\n"
+        f"❓ **Deseja processar a saída no SAP agora?**\n"
+        f"👉 Responda **'confirmo'** ou **'sim'** aqui mesmo no chat para executar diretamente, ou acesse a aba para conferir."
+    )
+    resultado["mensagem"] = msg
+    resultado["status"] = "Dados preparados na aba Saída OSME."
+    return resultado
+
+def _executar_saida_osme_chat():
+    if not saida_osme_view:
+        return {"erro": "Módulo Saída OSME ainda não foi inicializado."}
+    resultado = {}
+    ev = threading.Event()
+    def _exec():
+        try:
+            _trocar_aba(tab_name_saida_osme)
+            res = saida_osme_view.executar_saida_via_chat()
+            resultado.update(res)
+        except Exception as e:
+            resultado["erro"] = str(e)
+        finally:
+            ev.set()
+    root.after(0, _exec)
+    ev.wait(timeout=5.0)
+    return resultado
+
+def _contagem_carro_chat(equipe=None, seriais=None, acao="abrir"):
+    def _exec():
+        try:
+            _trocar_aba(tab_name_contagem_carro)
+            if contagem_carro_view:
+                if equipe:
+                    contagem_carro_view.entry_equipe.delete(0, tk.END)
+                    contagem_carro_view.entry_equipe.insert(0, str(equipe).strip().upper())
+                if seriais:
+                    from modulo_extrator import extrair_lista_seriais
+                    lista = extrair_lista_seriais(str(seriais))
+                    if lista:
+                        contagem_carro_view.txt_seriais.delete("1.0", tk.END)
+                        contagem_carro_view.txt_seriais.insert("1.0", "\n".join(lista))
+                        contagem_carro_view._ao_alterar_seriais()
+                if acao == "executar" and equipe and seriais:
+                    contagem_carro_view.executar_ciclo_completo_acao()
+                elif acao == "osme" and equipe:
+                    contagem_carro_view.puxar_medidores_osme_acao()
+                elif acao == "auditar" and seriais:
+                    contagem_carro_view.consultar_zmcse01_acao()
+        except Exception:
+            pass
+    root.after(0, _exec)
+    eq_txt = f" para a equipe {equipe}" if equipe else ""
+    return {"status": f"Módulo Contagem de Carro aberto{eq_txt}."}
+
 funcoes_chat = {
     "buscar_lote": _buscar_lote_chat,
     "buscar_multiplos_lotes": _buscar_multiplos_lotes_chat,
@@ -795,6 +1400,18 @@ funcoes_chat = {
     "login_sap": _login_sap_chat,
     "info_sap": _info_sap_chat,
     "copiar_seriais": _copiar_seriais_chat,
+    "executar_bandeirada": _executar_bandeirada_chat,
+    "extrair_osme": _extrair_osme_chat,
+    "consultar_migo": _consultar_migo_chat,
+    "transferir_osme": _transferir_osme_chat,
+    "mudar_recurso": _mudar_recurso_chat,
+    "abrir_conferencia": _abrir_conferencia_chat,
+    "abrir_fichas": _abrir_fichas_chat,
+    "abrir_modulo": _abrir_modulo_chat,
+    "consultar_iq09": _consultar_iq09_chat,
+    "saida_osme": _saida_osme_chat,
+    "executar_saida_osme": _executar_saida_osme_chat,
+    "contagem_carro": _contagem_carro_chat,
 }
 
 def abrir_chat():
@@ -806,13 +1423,38 @@ def abrir_chat():
     chat_janela_ref[0] = chat_popup.janela
 
 btn_chat = ctk.CTkButton(
-    root, text="💬", font=("Segoe UI", 24),
-    fg_color="#f57c00", hover_color="#e65100", width=60, height=60, corner_radius=30,
+    root, text="💬", font=("Segoe UI", 16, "bold"),
+    fg_color="#00d2ff", hover_color="#0284c7", text_color="#090d16",
+    width=38, height=38, corner_radius=19,
     command=abrir_chat, cursor="hand2"
 )
-btn_chat.place(relx=1.0, rely=1.0, x=-90, y=-90)
+btn_chat.place(relx=1.0, rely=0.82, x=-16, anchor="e")
+
+# Suporte suave para arrastar verticalmente o balão pela borda direita caso desejado
+def _on_chat_drag_start(event):
+    btn_chat._drag_y = event.y_root
+
+def _on_chat_drag(event):
+    dy = event.y_root - getattr(btn_chat, "_drag_y", event.y_root)
+    btn_chat._drag_y = event.y_root
+    cur_y = btn_chat.winfo_y() + dy
+    min_y = 70
+    max_y = root.winfo_height() - 70
+    cur_y = max(min_y, min(max_y, cur_y))
+    btn_chat.place(relx=1.0, rely=0.0, y=cur_y, x=-16, anchor="ne")
+
+btn_chat.bind("<Button-1>", _on_chat_drag_start, add="+")
+btn_chat.bind("<B1-Motion>", _on_chat_drag, add="+")
 
 aplicar_tema(tema_inicial)
+
+# Gerenciador da Bandeja do Sistema e Fechamento Seguro (segundo plano para fallback de pendências)
+tray_manager = None
+try:
+    from utils_tray import NexusTrayManager
+    tray_manager = NexusTrayManager(root)
+except Exception as _e_tray:
+    log_error(f"Aviso ao inicializar NexusTrayManager: {_e_tray}")
 
 if __name__ == "__main__":
     # Inicia módulos em estágios assíncronos não-bloqueantes

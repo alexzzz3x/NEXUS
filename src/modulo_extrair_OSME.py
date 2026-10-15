@@ -1,11 +1,13 @@
 import os
 import re
+import json
+import datetime
 import subprocess
 import tempfile
 import threading
 import time
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, ttk
 import customtkinter as ctk
 
 import pythoncom
@@ -14,13 +16,14 @@ import win32con
 import win32gui
 
 from modulo_Sap import verificar_sap_aberto, set_sap_ocupado
+from utils_os import obter_diretorio_executavel, obter_caminho_recurso, obter_caminho_script, obter_caminho_config
+from utils_metrics import incrementar_metrica
 
 DEFAULT_PALETAS = {
-    "Conecta Blue": {"bg": "#0a192f", "container": "#172a45", "texto": "#ffffff", "accent": "#f57c00", "hover": "#e65100", "input": "#1f3a60"}
+    "Nexus": {"bg": "#090d16", "container": "#111827", "texto": "#f8fafc", "accent": "#00d2ff", "hover": "#0284c7", "input": "#1a2436"},
+    "Azul Delray": {"bg": "#0a192f", "container": "#172a45", "texto": "#ffffff", "accent": "#38bdf8", "hover": "#0284c7", "input": "#1f3a60"},
+    "Conecta Blue": {"bg": "#0a192f", "container": "#172a45", "texto": "#ffffff", "accent": "#38bdf8", "hover": "#0284c7", "input": "#1f3a60"}
 }
-
-from utils_os import obter_diretorio_executavel, obter_caminho_recurso, obter_caminho_script
-from utils_metrics import incrementar_metrica
 
 def obter_script_osme():
     return obter_caminho_script("Sciprt OSME2.vbs")
@@ -32,29 +35,128 @@ class AbaExtrairOSME:
         self.parent_frame = parent_frame
         self.label_status_global = label_status_global
         self.paletas = paletas or DEFAULT_PALETAS
-        self.obter_tema_atual = obter_tema_atual or (lambda: "Conecta Blue")
+        self.obter_tema_atual = obter_tema_atual or (lambda: "Nexus")
         self.executando = False
 
         self._construir_interface()
         self.aplicar_tema(self.obter_tema_atual())
+        self._renderizar_historico()
         self._log("📄 Aba Extrator OSME pronta.")
 
     def aplicar_tema(self, tema_nome):
         c = self._cores(tema_nome)
-        self.parent_frame.configure(fg_color=c.get("bg", "transparent"))
+        bg = c.get("bg", "#090d16")
+        container = c.get("container", "#111827")
+        inp = c.get("input", "#1a2436")
+        texto = c.get("texto", "#f8fafc")
+        accent = c.get("accent", "#00d2ff")
+        hover = c.get("hover", "#0284c7")
+
+        self.parent_frame.configure(fg_color=bg)
 
         for widget in [self.txt_recursos, self.txt_log]:
-            widget.configure(fg_color=c["input"], text_color=c["texto"], border_color=c["container"], border_width=1)
+            widget.configure(fg_color=inp, text_color=texto, border_color=container, border_width=1)
 
-        self.btn_extrair.configure(fg_color=c["accent"], hover_color=c["hover"], text_color="white")
-        self.btn_limpar_log.configure(fg_color=c["container"], hover_color=c["hover"], text_color=c["texto"])
-        self.check_imprimir_excel.configure(fg_color=c["accent"], text_color=c["texto"])
-        
-        self.lbl_titulo.configure(text_color=c["texto"])
-        self.lbl_log.configure(text_color=c["texto"])
-        self.container.configure(fg_color="transparent")
-        self.frame_botoes.configure(fg_color="transparent")
+        self.btn_extrair.configure(fg_color=accent, hover_color=hover, text_color="#090d16" if "Light" not in tema_nome else "#ffffff")
+        self.btn_limpar_log.configure(fg_color=container, hover_color=hover, text_color=texto)
+        self.btn_limpar_hist.configure(fg_color=inp, hover_color=hover, text_color=texto)
+        self.check_imprimir_excel.configure(fg_color=accent, text_color=texto)
 
+        self.lbl_titulo.configure(text_color=texto)
+        self.lbl_log.configure(text_color=texto)
+        self.lbl_hist_tit.configure(text_color=accent)
+        self.lbl_hist_hint.configure(text_color="#94a3b8")
+
+        self.card_hist.configure(fg_color=container)
+
+        estilo = ttk.Style()
+        estilo.configure(
+            "HistoricoOSME.Treeview",
+            background=container,
+            foreground=texto,
+            fieldbackground=inp,
+            bordercolor=container,
+            rowheight=26,
+            relief="flat"
+        )
+        estilo.configure(
+            "HistoricoOSME.Treeview.Heading",
+            background=inp,
+            foreground=accent,
+            font=("Segoe UI", 9, "bold")
+        )
+        estilo.map(
+            "HistoricoOSME.Treeview",
+            background=[("selected", accent)],
+            foreground=[("selected", "white")]
+        )
+
+    # ---------------------------------------------------------
+    # Persistência de Histórico Recente
+    # ---------------------------------------------------------
+    def _caminho_historico(self):
+        return obter_caminho_config("historico_extracao_osme.json")
+
+    def _carregar_historico(self):
+        caminho = self._caminho_historico()
+        if os.path.exists(caminho):
+            try:
+                with open(caminho, "r", encoding="utf-8") as f:
+                    dados = json.load(f)
+                    if isinstance(dados, list):
+                        return dados
+            except Exception:
+                pass
+        return []
+
+    def _salvar_historico(self, itens):
+        caminho = self._caminho_historico()
+        try:
+            os.makedirs(os.path.dirname(caminho), exist_ok=True)
+            with open(caminho, "w", encoding="utf-8") as f:
+                json.dump(itens[:50], f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _adicionar_historico(self, recurso, status):
+        hora = datetime.datetime.now().strftime("%H:%M")
+        itens = self._carregar_historico()
+        itens.insert(0, {
+            "recurso": recurso,
+            "horario": hora,
+            "status": status
+        })
+        self._salvar_historico(itens)
+        self._renderizar_historico(itens)
+
+    def _limpar_historico(self):
+        self._salvar_historico([])
+        self._renderizar_historico([])
+
+    def _renderizar_historico(self, itens=None):
+        if itens is None:
+            itens = self._carregar_historico()
+        for item in self.tree_hist.get_children():
+            self.tree_hist.delete(item)
+        for d in itens:
+            self.tree_hist.insert("", "end", values=(d.get("recurso", "-"), d.get("horario", "-"), d.get("status", "-")))
+
+    def _ao_clique_duplo_historico(self, event):
+        selecionado = self.tree_hist.selection()
+        if selecionado:
+            valores = self.tree_hist.item(selecionado[0], "values")
+            if valores:
+                rec = valores[0]
+                conteudo_atual = self.txt_recursos.get("1.0", tk.END).strip()
+                if conteudo_atual:
+                    if rec not in conteudo_atual.splitlines():
+                        self.txt_recursos.insert(tk.END, f"\n{rec}")
+                else:
+                    self.txt_recursos.insert(tk.END, rec)
+
+    # ---------------------------------------------------------
+    # Execução da Extração
+    # ---------------------------------------------------------
     def iniciar_extracao(self):
         if self.executando:
             messagebox.showwarning("Aviso", "A extração OSME já está em execução.")
@@ -94,14 +196,14 @@ class AbaExtrairOSME:
             for recurso in recursos:
                 self._log_threadsafe(f"\n⏳ Consultando OSME para: {recurso}...")
                 script_temp = self._criar_script_temporario(recurso)
-                
+
                 try:
                     self._log_threadsafe("🔍 Executando extração OSME no SAP...")
 
                     creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                     resultado = subprocess.run(
                         ["cscript.exe", "//nologo", script_temp],
-                        capture_output=True, text=True, timeout=240, creationflags=creationflags,
+                        capture_output=True, text=True, timeout=None, creationflags=creationflags,
                     )
 
                     saida = (resultado.stdout or "").strip()
@@ -114,10 +216,15 @@ class AbaExtrairOSME:
                             self._log_threadsafe("🖨️ Enviando planilha do Excel para impressão...")
                             self._imprimir_excel_aberto()
                         self._log_threadsafe(f"✅ Extração OSME finalizada para: {recurso}")
-                        incrementar_metrica("osmes_extraidos", 1)
+                        try:
+                            incrementar_metrica("osmes_extraidos", 1)
+                        except Exception:
+                            pass
+                        self.parent_frame.after(0, lambda r=recurso: self._adicionar_historico(r, "✅ Concluído"))
                     else:
                         erro = (resultado.stderr or resultado.stdout or "Erro desconhecido.").strip()
                         self._log_threadsafe(f"⚠️ Falha na extração OSME de {recurso}: {erro}")
+                        self.parent_frame.after(0, lambda r=recurso: self._adicionar_historico(r, "❌ Falha"))
                 finally:
                     try: os.remove(script_temp)
                     except OSError: pass
@@ -138,104 +245,74 @@ class AbaExtrairOSME:
         script_osme = obter_script_osme()
         with open(script_osme, "r", encoding="utf-8", errors="ignore") as f:
             conteudo = f.read()
+
         conteudo = self._inserir_reset_sap(conteudo)
         conteudo = re.sub(
-            r'(session\.findById\("wnd\[0\]/usr/ctxtS_EQUIPE-LOW"\)\.text\s*=\s*)".*?"',
+            r'(session\.findById\("wnd\[0\]/usr/ctxtDY_PARNR"\)\.text\s*=\s*)".*?"',
             lambda match: f'{match.group(1)}"{recurso}"',
             conteudo, count=1, flags=re.IGNORECASE,
         )
         conteudo = re.sub(
-            r'(session\.findById\("wnd\[0\]/usr/ctxtS_EQUIPE-LOW"\)\.caretPosition\s*=\s*)\d+',
+            r'(session\.findById\("wnd\[0\]/usr/ctxtDY_PARNR"\)\.caretPosition\s*=\s*)\d+',
             lambda match: f"{match.group(1)}{len(recurso)}",
             conteudo, count=1, flags=re.IGNORECASE,
         )
-        fd, caminho = tempfile.mkstemp(prefix="osme_", suffix=".vbs", text=True)
-        with os.fdopen(fd, "w", encoding="mbcs") as f:
+
+        fd, caminho_temp = tempfile.mkstemp(prefix="sap_osme_", suffix=".vbs")
+        with open(fd, "w", encoding="utf-8", errors="ignore") as f:
             f.write(conteudo)
-        return caminho
+        return caminho_temp
 
     def _inserir_reset_sap(self, conteudo):
-        if "Reset automatico inserido pelo Conecta Hub" in conteudo: return conteudo
-        ponto_ancora = 'session.findById("wnd[0]").maximize'
-        bloco_reset = (
-            "' Reset automatico inserido pelo Conecta Hub\n"
+        reset_cmd = (
             'On Error Resume Next\n'
-            'session.findById("wnd[0]/tbar[0]/btn[12]").press\n'
-            'session.findById("wnd[0]/tbar[0]/okcd").text = "/nS000"\n'
+            'session.findById("wnd[0]/tbar[0]/okcd").text = "/n"\n'
             'session.findById("wnd[0]").sendVKey 0\n'
-            'WScript.Sleep 500\n'
-            'If session.Children.Count > 1 Then\n'
-            '    session.findById("wnd[1]/tbar[0]/btn[0]").press\n'
-            'End If\n'
             'On Error GoTo 0\n'
         )
-        if ponto_ancora in conteudo:
-            return conteudo.replace(ponto_ancora, ponto_ancora + "\n" + bloco_reset, 1)
-        return bloco_reset + conteudo
+        alvo = 'If Not IsObject(connection) Then'
+        if alvo in conteudo:
+            partes = conteudo.split(alvo, 1)
+            return partes[0] + alvo + partes[1].replace(
+                'Set session = connection.Children(0)',
+                'Set session = connection.Children(0)\n' + reset_cmd,
+                1,
+            )
+        return conteudo
 
     def _imprimir_excel_aberto(self):
-        pythoncom.CoInitialize()
-        self._log_threadsafe("🖨️ Focando na janela do Excel para impressão...")
-        time.sleep(2.5)
+        def _acao():
+            pythoncom.CoInitialize()
+            try:
+                hwnd = self._esperar_janela_excel(timeout=15)
+                if hwnd:
+                    try:
+                        win32gui.ShowWindow(hwnd, win32con.SW_MINIMIZE)
+                    except Exception:
+                        pass
 
-        hwnd_excel = self._encontrar_hwnd_excel()
-        if not hwnd_excel:
-            self._log_threadsafe("⚠️ Janela do Excel não foi localizada na tela.")
-            return
+                excel = win32com.client.GetObject(Class="Excel.Application")
+                if excel and excel.Workbooks.Count > 0:
+                    wb = excel.ActiveWorkbook
+                    if wb:
+                        wb.PrintOut()
+                        self._log_threadsafe("🖨️ Comando de impressão enviado ao Excel.")
+                    else:
+                        self._log_threadsafe("⚠️ Nenhuma pasta de trabalho ativa encontrada no Excel.")
+                else:
+                    self._log_threadsafe("⚠️ Excel não localizado via COM para impressão automática.")
+            except Exception as e:
+                self._log_threadsafe(f"⚠️ Não foi possível imprimir automaticamente: {e}")
+            finally:
+                pythoncom.CoUninitialize()
 
-        try:
-            win32gui.ShowWindow(hwnd_excel, win32con.SW_RESTORE)
-            win32gui.SetForegroundWindow(hwnd_excel)
-            time.sleep(0.8)
-        except Exception as e_win:
-            pass
+        threading.Thread(target=_acao, daemon=True).start()
 
-        try:
-            excel = win32com.client.GetActiveObject("Excel.Application")
-            if excel:
-                excel.DisplayAlerts = False
-                excel.Visible = True
-                if hasattr(excel, "ProtectedViewWindows") and excel.ProtectedViewWindows.Count > 0:
-                    for i in range(1, excel.ProtectedViewWindows.Count + 1):
-                        excel.ProtectedViewWindows(i).Edit()
-                    time.sleep(1.0)
-                wb = excel.ActiveWorkbook or excel.Workbooks(excel.Workbooks.Count)
-                if wb:
-                    sheet = wb.ActiveSheet or wb.Sheets(1)
-                    sheet.PageSetup.Orientation = 2
-                    sheet.PageSetup.Zoom = False
-                    sheet.PageSetup.FitToPagesWide = 1
-                    sheet.PageSetup.FitToPagesTall = False
-        except Exception as e_com:
-            pass
-
-        try:
-            win32gui.SetForegroundWindow(hwnd_excel)
-            time.sleep(0.5)
-        except Exception:
-            pass
-
-        try:
-            shell = win32com.client.Dispatch("WScript.Shell")
-            shell.SendKeys("%p")
-            time.sleep(0.4)
-            shell.SendKeys("o")
-            time.sleep(0.4)
-            shell.SendKeys("{DOWN}")
-            time.sleep(0.4)
-            shell.SendKeys("{ENTER}")
-            time.sleep(0.8)
-            shell.SendKeys("^p")
-            time.sleep(1.5)
-            shell.SendKeys("{ENTER}")
-            self._log_threadsafe("✅ Planilha configurada em PAISAGEM e impressa com sucesso!")
-        except Exception as e_keys:
-            self._log_threadsafe(f"⚠️ Erro ao enviar atalho no teclado: {e_keys}")
-
-    def _encontrar_hwnd_excel(self, tentativas=20, intervalo=0.5):
-        for _ in range(tentativas):
+    def _esperar_janela_excel(self, timeout=15, intervalo=0.5):
+        inicio = time.time()
+        while time.time() - inicio < timeout:
             janelas = []
-            def enum_cb(hwnd, extra):
+            def enum_cb(hwnd, _):
                 if win32gui.IsWindowVisible(hwnd):
                     cls = win32gui.GetClassName(hwnd)
                     title = win32gui.GetWindowText(hwnd)
@@ -246,34 +323,101 @@ class AbaExtrairOSME:
             time.sleep(intervalo)
         return None
 
+    # ---------------------------------------------------------
+    # Construção da Interface (2 Colunas: Operação & Histórico)
+    # ---------------------------------------------------------
     def _construir_interface(self):
-        self.container = ctk.CTkFrame(self.parent_frame)
-        self.container.pack(fill="both", expand=True, padx=40, pady=24)
+        self.container = ctk.CTkFrame(self.parent_frame, fg_color="transparent")
+        self.container.pack(fill="both", expand=True, padx=20, pady=16)
 
-        self.lbl_titulo = ctk.CTkLabel(self.container, text="📄 Insira os recursos/equipes para extrair OSME (um por linha):", font=("Segoe UI", 14, "bold"))
-        self.lbl_titulo.pack(anchor="w", pady=(0, 10))
+        self.container.grid_columnconfigure(0, weight=6)  # Coluna Esquerda: 60%
+        self.container.grid_columnconfigure(1, weight=4)  # Coluna Direita: 40%
+        self.container.grid_rowconfigure(0, weight=1)
 
-        self.txt_recursos = ctk.CTkTextbox(self.container, height=140, font=("Consolas", 13), wrap="none", corner_radius=6)
-        self.txt_recursos.pack(fill="x", pady=(0, 15))
+        # 1. COLUNA ESQUERDA: Execução & Logs
+        col_esq = ctk.CTkFrame(self.container, fg_color="transparent")
+        col_esq.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
 
-        self.frame_botoes = ctk.CTkFrame(self.container)
-        self.frame_botoes.pack(fill="x", pady=(0, 18))
+        self.lbl_titulo = ctk.CTkLabel(col_esq, text="📄 Recursos / Equipes para extrair OSME (um por linha):", font=("Segoe UI", 13, "bold"))
+        self.lbl_titulo.pack(anchor="w", pady=(0, 6))
 
-        self.btn_extrair = ctk.CTkButton(self.frame_botoes, text="📄 Iniciar extração OSME", command=self.iniciar_extracao, font=("Segoe UI", 13, "bold"), height=40)
+        self.txt_recursos = ctk.CTkTextbox(col_esq, height=110, font=("Consolas", 13), wrap="none", corner_radius=8)
+        self.txt_recursos.pack(fill="x", pady=(0, 10))
+
+        self.frame_botoes = ctk.CTkFrame(col_esq, fg_color="transparent")
+        self.frame_botoes.pack(fill="x", pady=(0, 12))
+
+        self.btn_extrair = ctk.CTkButton(self.frame_botoes, text="📄 Iniciar extração OSME", command=self.iniciar_extracao, font=("Segoe UI", 13, "bold"), height=38, corner_radius=8)
         self.btn_extrair.pack(side="left", fill="x", expand=True)
 
         self.imprimir_excel_var = tk.BooleanVar(value=True)
-        self.check_imprimir_excel = ctk.CTkCheckBox(self.frame_botoes, text="🖨️ Imprimir Excel ao finalizar", variable=self.imprimir_excel_var, font=("Segoe UI", 12, "bold"))
-        self.check_imprimir_excel.pack(side="left", padx=(15, 0))
+        self.check_imprimir_excel = ctk.CTkCheckBox(self.frame_botoes, text="🖨️ Imprimir Excel", variable=self.imprimir_excel_var, font=("Segoe UI", 11, "bold"))
+        self.check_imprimir_excel.pack(side="left", padx=(10, 0))
 
-        self.btn_limpar_log = ctk.CTkButton(self.frame_botoes, text="🧹 Limpar log", command=self.limpar_log, font=("Segoe UI", 12, "bold"), width=120, height=40)
-        self.btn_limpar_log.pack(side="left", padx=(15, 0))
+        self.btn_limpar_log = ctk.CTkButton(self.frame_botoes, text="🧹 Limpar", command=self.limpar_log, font=("Segoe UI", 11, "bold"), width=90, height=38, corner_radius=8)
+        self.btn_limpar_log.pack(side="left", padx=(10, 0))
 
-        self.lbl_log = ctk.CTkLabel(self.container, text="📋 Log de execução:", font=("Segoe UI", 12, "bold"))
-        self.lbl_log.pack(anchor="w")
+        self.lbl_log = ctk.CTkLabel(col_esq, text="📋 Log de Execução:", font=("Segoe UI", 12, "bold"))
+        self.lbl_log.pack(anchor="w", pady=(0, 4))
 
-        self.txt_log = ctk.CTkTextbox(self.container, height=200, font=("Segoe UI", 12), wrap="word", state="disabled", corner_radius=6)
-        self.txt_log.pack(fill="both", expand=True, pady=(6, 0))
+        self.txt_log = ctk.CTkTextbox(col_esq, font=("Segoe UI", 11), wrap="word", state="disabled", corner_radius=8)
+        self.txt_log.pack(fill="both", expand=True)
+
+        # 2. COLUNA DIREITA: Painel de Histórico Recente
+        self.card_hist = ctk.CTkFrame(self.container, corner_radius=10)
+        self.card_hist.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+
+        frame_hist_header = ctk.CTkFrame(self.card_hist, fg_color="transparent")
+        frame_hist_header.pack(fill="x", padx=12, pady=(12, 8))
+
+        self.lbl_hist_tit = ctk.CTkLabel(frame_hist_header, text="🕒 Histórico de Extrações", font=("Segoe UI", 13, "bold"))
+        self.lbl_hist_tit.pack(side="left")
+
+        self.btn_limpar_hist = ctk.CTkButton(
+            frame_hist_header,
+            text="🗑️ Limpar",
+            width=70,
+            height=26,
+            font=("Segoe UI", 10, "bold"),
+            command=self._limpar_historico,
+            corner_radius=6
+        )
+        self.btn_limpar_hist.pack(side="right")
+
+        # Tabela Treeview de Histórico
+        frame_tree = ctk.CTkFrame(self.card_hist, fg_color="transparent")
+        frame_tree.pack(fill="both", expand=True, padx=12, pady=(0, 6))
+
+        colunas = ("recurso", "horario", "status")
+        self.tree_hist = ttk.Treeview(
+            frame_tree,
+            columns=colunas,
+            show="headings",
+            style="HistoricoOSME.Treeview",
+            selectmode="browse"
+        )
+        self.tree_hist.heading("recurso", text="Recurso")
+        self.tree_hist.heading("horario", text="Hora")
+        self.tree_hist.heading("status", text="Status")
+
+        self.tree_hist.column("recurso", width=120, anchor="center")
+        self.tree_hist.column("horario", width=70, anchor="center")
+        self.tree_hist.column("status", width=120, anchor="center")
+
+        scroll_y = ttk.Scrollbar(frame_tree, orient="vertical", command=self.tree_hist.yview)
+        self.tree_hist.configure(yscrollcommand=scroll_y.set)
+
+        self.tree_hist.pack(side="left", fill="both", expand=True)
+        scroll_y.pack(side="right", fill="y")
+
+        self.tree_hist.bind("<Double-1>", self._ao_clique_duplo_historico)
+
+        self.lbl_hist_hint = ctk.CTkLabel(
+            self.card_hist,
+            text="💡 Duplo clique em um item para inseri-lo no campo.",
+            font=("Segoe UI", 10, "italic")
+        )
+        self.lbl_hist_hint.pack(padx=12, pady=(0, 8))
 
     def _finalizar_execucao(self):
         self.executando = False
@@ -297,7 +441,7 @@ class AbaExtrairOSME:
 
     def _cores(self, tema_nome=None):
         tema = tema_nome or self.obter_tema_atual()
-        return self.paletas.get(tema, next(iter(self.paletas.values())))
+        return self.paletas.get(tema, self.paletas.get("Nexus", DEFAULT_PALETAS["Nexus"]))
 
 def construir_aba_extrair_osme(parent_frame, label_status_global=None, paletas=None, obter_tema_atual=None):
     return AbaExtrairOSME(parent_frame, label_status_global, paletas, obter_tema_atual)

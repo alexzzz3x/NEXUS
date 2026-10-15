@@ -1,3 +1,4 @@
 pywin32>=306
 pyinstaller>=6.0
 selenium>=4.20
+pystray>=0.19.5

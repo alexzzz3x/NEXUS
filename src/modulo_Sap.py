@@ -13,7 +13,9 @@ import win32com.client
 from utils_os import obter_diretorio_executavel
 
 DEFAULT_PALETAS = {
-    "Conecta Blue": {"bg": "#0a192f", "container": "#172a45", "texto": "#ffffff", "accent": "#f57c00", "hover": "#e65100", "input": "#1f3a60"}
+    "Nexus": {"bg": "#090d16", "container": "#111827", "texto": "#f8fafc", "accent": "#00d2ff", "hover": "#0284c7", "input": "#1a2436"},
+    "Azul Delray": {"bg": "#0a192f", "container": "#172a45", "texto": "#ffffff", "accent": "#38bdf8", "hover": "#0284c7", "input": "#1f3a60"},
+    "Conecta Blue": {"bg": "#0a192f", "container": "#172a45", "texto": "#ffffff", "accent": "#38bdf8", "hover": "#0284c7", "input": "#1f3a60"}
 }
 
 _sap_ocupado = False
@@ -99,12 +101,14 @@ def verificar_sap_aberto():
             f.write(vbs)
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         
-        # Testa cscript 32-bit (SysWOW64) e 64-bit
-        cscripts = []
+        # Testa cscript (padrão do sistema primeiro, depois System32 e SysWOW64)
+        cscripts = ["cscript.exe"]
+        cscript_sys32 = r"C:\Windows\System32\cscript.exe"
         cscript_32 = r"C:\Windows\SysWOW64\cscript.exe"
-        if os.path.exists(cscript_32):
+        if os.path.exists(cscript_sys32) and cscript_sys32 not in cscripts:
+            cscripts.append(cscript_sys32)
+        if os.path.exists(cscript_32) and cscript_32 not in cscripts:
             cscripts.append(cscript_32)
-        cscripts.append("cscript.exe")
 
         for cs in cscripts:
             try:
@@ -226,11 +230,13 @@ WScript.Echo sess.Info.SystemName & "|" & sess.Info.Client & "|" & sess.Info.Use
         with os.fdopen(fd, "w", encoding="cp1252") as f:
             f.write(vbs)
         
-        cscripts = []
+        cscripts = ["cscript.exe"]
+        cscript_sys32 = r"C:\Windows\System32\cscript.exe"
         cscript_32 = r"C:\Windows\SysWOW64\cscript.exe"
-        if os.path.exists(cscript_32):
+        if os.path.exists(cscript_sys32) and cscript_sys32 not in cscripts:
+            cscripts.append(cscript_sys32)
+        if os.path.exists(cscript_32) and cscript_32 not in cscripts:
             cscripts.append(cscript_32)
-        cscripts.append("cscript.exe")
 
         creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         saida_vbs = ""
@@ -459,7 +465,7 @@ class AbaSap:
         self.parent_frame = parent_frame
         self.label_status_global = label_status_global
         self.paletas = paletas or DEFAULT_PALETAS
-        self.obter_tema_atual = obter_tema_atual or (lambda: "Conecta Blue")
+        self.obter_tema_atual = obter_tema_atual or (lambda: "Nexus")
         self.botoes_usuario = []
         self._conectando = False
 
@@ -623,7 +629,7 @@ class AbaSap:
 
     def _cores(self, tema_nome=None):
         tema = tema_nome or self.obter_tema_atual()
-        return self.paletas.get(tema, next(iter(self.paletas.values())))
+        return self.paletas.get(tema, self.paletas.get("Nexus", DEFAULT_PALETAS["Nexus"]))
 
 def construir_aba_sap(parent_frame, label_status_global=None, paletas=None, obter_tema_atual=None):
     return AbaSap(parent_frame, label_status_global, paletas, obter_tema_atual)

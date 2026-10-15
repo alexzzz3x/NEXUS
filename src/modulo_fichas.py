@@ -22,73 +22,14 @@ except ImportError:
     ChromeService = None
 
 
-def _obter_caminho_config():
-    try:
-        from utils_os import obter_diretorio_executavel
-        base = obter_diretorio_executavel()
-    except Exception:
-        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    pasta_data = os.path.join(base, "data")
-    os.makedirs(pasta_data, exist_ok=True)
-    return os.path.join(pasta_data, "config_fichas.json")
-
-
-def _carregar_banco_nomes():
-    """Carrega mapa de RE -> Nome completo a partir do Banco de nomes.xlsx."""
-    mapa = {}
-    try:
-        from utils_os import obter_diretorio_executavel, obter_caminho_recurso
-        caminhos = [
-            os.path.join(obter_diretorio_executavel(), "data", "Banco de nomes.xlsx"),
-            obter_caminho_recurso("data", "Banco de nomes.xlsx"),
-        ]
-        import pandas as pd
-        for c in caminhos:
-            if os.path.exists(c):
-                df = pd.read_excel(c)
-                col_re = next((col for col in df.columns if "re" in col.lower()), None)
-                col_nome = next((col for col in df.columns if "nome" in col.lower()), None)
-                if col_re and col_nome:
-                    for _, row in df.iterrows():
-                        re_val = str(row[col_re]).strip().split(".")[0]
-                        nome_val = str(row[col_nome]).strip()
-                        if re_val and nome_val and re_val != "nan" and nome_val != "nan":
-                            mapa[re_val] = nome_val
-                if mapa:
-                    break
-    except Exception:
-        pass
-    return mapa
-
-
-def _carregar_dicionario_materiais():
-    """Tenta carregar o catálogo de materiais para exibição amigável de nomes."""
-    catalogo = {}
-    try:
-        from utils_os import obter_diretorio_executavel, obter_caminho_recurso
-        caminhos = [
-            os.path.join(obter_diretorio_executavel(), "data", "banco_de_dados.xlsx"),
-            obter_caminho_recurso("data", "banco_de_dados.xlsx"),
-            os.path.join(obter_diretorio_executavel(), "data", "Banco de nomes.xlsx"),
-            obter_caminho_recurso("data", "Banco de nomes.xlsx"),
-        ]
-        import pandas as pd
-        for c in caminhos:
-            if os.path.exists(c):
-                df = pd.read_excel(c)
-                col_mat = next((col for col in df.columns if "material" in col.lower() or "codigo" in col.lower()), None)
-                col_desc = next((col for col in df.columns if "descri" in col.lower() or "nome" in col.lower()), None)
-                if col_mat and col_desc:
-                    for _, row in df.iterrows():
-                        m = str(row[col_mat]).strip().split(".")[0]
-                        d = str(row[col_desc]).strip()
-                        if m and d and m != "nan" and d != "nan":
-                            catalogo[m] = d
-                if catalogo:
-                    break
-    except Exception:
-        pass
-    return catalogo
+from utils_workforce import (
+    _obter_caminho_config,
+    _carregar_banco_nomes,
+    _carregar_dicionario_materiais,
+    carregar_credenciais_workforce,
+    executar_fluxo_workforce,
+)
+from utils_metrics import incrementar_metrica
 
 
 class AbaFichas:
@@ -102,7 +43,7 @@ class AbaFichas:
     def __init__(self, parent_frame, paletas=None, obter_tema_atual=None):
         self.parent_frame = parent_frame
         self.paletas = paletas or {}
-        self.obter_tema_atual = obter_tema_atual or (lambda: "Conecta Blue")
+        self.obter_tema_atual = obter_tema_atual or (lambda: "Nexus")
         self.driver = None
         self.materiais_lista = []
         self.catalogo_materiais = {}
@@ -143,9 +84,9 @@ class AbaFichas:
             pass
 
     def _cores(self, tema):
-        return self.paletas.get(tema, self.paletas.get("Conecta Blue", {
-            "bg": "#0a192f", "container": "#172a45", "texto": "#ffffff",
-            "accent": "#f57c00", "hover": "#e65100", "input": "#1f3a60"
+        return self.paletas.get(tema, self.paletas.get("Nexus", {
+            "bg": "#090d16", "container": "#111827", "texto": "#f8fafc",
+            "accent": "#00d2ff", "hover": "#0284c7", "input": "#1a2436"
         }))
 
     def _construir_interface(self):
@@ -485,19 +426,66 @@ class AbaFichas:
     def _selecionar_dropdown(self, driver, select_element, re_codigo):
         """Seleciona a opção do dropdown combinando o RE ou o nome do Banco de nomes."""
         re_str = str(re_codigo).strip()
-        nome_alvo = self.mapa_nomes.get(re_str, "").lower()
+        nome_alvo = (self.mapa_nomes.get(re_str, "") if self.mapa_nomes else "").lower().strip()
+        partes_nome = [p for p in nome_alvo.split() if len(p) > 2]
         for _ in range(3):
             try:
                 s = Select(select_element)
                 for opt in s.options:
                     t = opt.text.lower().strip()
                     v = opt.get_attribute("value") or ""
-                    if (nome_alvo and nome_alvo in t) or (re_str and (re_str in t or re_str == v)):
+                    if re_str and (re_str in t or re_str == v):
+                        s.select_by_visible_text(opt.text)
+                        return True
+                    if nome_alvo and nome_alvo in t:
+                        s.select_by_visible_text(opt.text)
+                        return True
+                    if len(partes_nome) >= 2 and partes_nome[0] in t and partes_nome[-1] in t:
                         s.select_by_visible_text(opt.text)
                         return True
             except Exception:
                 time.sleep(0.5)
         return False
+
+    def carregar_dados_ficha(self, dados):
+        """Carrega externamente dados na aba Fichas (ex: vindo da Contagem de Carro)."""
+        if not dados:
+            return
+        if "data" in dados and hasattr(self, "campo_data"):
+            self.campo_data.delete(0, "end")
+            self.campo_data.insert(0, str(dados["data"]))
+        if "base" in dados and hasattr(self, "campo_base"):
+            self.campo_base.set(str(dados["base"]))
+        if "re_almox" in dados and hasattr(self, "campo_re_almox"):
+            self.campo_re_almox.delete(0, "end")
+            self.campo_re_almox.insert(0, str(dados["re_almox"]))
+        if "re_almox_entregue" in dados and hasattr(self, "campo_re_almox_entregue"):
+            self.campo_re_almox_entregue.delete(0, "end")
+            self.campo_re_almox_entregue.insert(0, str(dados["re_almox_entregue"]))
+        if "re_eletricista_1" in dados and hasattr(self, "campo_re_eletricista_1"):
+            self.campo_re_eletricista_1.delete(0, "end")
+            self.campo_re_eletricista_1.insert(0, str(dados["re_eletricista_1"]))
+        if "re_eletricista_2" in dados and hasattr(self, "campo_re_eletricista_2"):
+            self.campo_re_eletricista_2.delete(0, "end")
+            self.campo_re_eletricista_2.insert(0, str(dados["re_eletricista_2"]))
+        if "recurso" in dados and hasattr(self, "campo_recurso"):
+            self.campo_recurso.delete(0, "end")
+            self.campo_recurso.insert(0, str(dados["recurso"]))
+        if "observacao" in dados and hasattr(self, "campo_observacao"):
+            self.campo_observacao.delete("1.0", "end")
+            self.campo_observacao.insert("1.0", str(dados["observacao"]))
+        if "materiais" in dados:
+            self.materiais_lista.clear()
+            for item in dados["materiais"]:
+                try:
+                    cod = str(item[0]).strip()
+                    qtd = int(item[1])
+                    self._adicionar_item_lista(cod, qtd, renderizar_imediato=False)
+                except Exception:
+                    pass
+            self._renderizar_lista_materiais()
+        if not dados.get("salvar_auto", False):
+            self.chk_salvar_auto.deselect()
 
     def abrir_ficha(self):
         # 1. Se houver código digitado na entrada rápida e não adicionado, adiciona automaticamente
@@ -523,19 +511,20 @@ class AbaFichas:
         re_almox = self.campo_re_almox.get().strip()
         re_elet1 = self.campo_re_eletricista_1.get().strip()
 
-        obrigatorios = [
-            ("RE Resp. Almox.", re_almox),
-            ("RE Eletricista 1", re_elet1)
-        ]
-        faltantes = [nome for nome, val in obrigatorios if not val]
-        if faltantes:
+        if not re_almox:
             messagebox.showwarning(
-                "Campos obrigatórios",
-                f"Por favor, preencha o(s) seguinte(s) campo(s):\n- " + "\n- ".join(faltantes)
+                "Campo obrigatório",
+                "Por favor, preencha o campo RE Resp. Almox."
             )
             return
 
-        if re_almox == re_elet1:
+        # Se eletricista 1 não foi preenchido, desmarca salvar_auto para que o usuário preencha manualmente no navegador
+        salvar_auto = bool(self.chk_salvar_auto.get())
+        if not re_elet1:
+            salvar_auto = False
+            self.chk_salvar_auto.deselect()
+
+        if re_elet1 and re_almox == re_elet1:
             if not messagebox.askyesno(
                 "Atenção: Mesmo RE",
                 f"O RE do Resp. Almox. e do Eletricista 1 estão iguais ({re_almox}).\n"
@@ -546,6 +535,10 @@ class AbaFichas:
 
         if webdriver is None:
             webbrowser.open(self.URL_NOVA_FICHA, new=2)
+            try:
+                incrementar_metrica("fichas_abertas", 1)
+            except Exception:
+                pass
             self.lbl_status.configure(text="⚠️ Selenium não instalado; formulário aberto para preenchimento manual.")
             return
 
@@ -572,255 +565,20 @@ class AbaFichas:
         threading.Thread(target=self._executar_fluxo, args=(dados_formulario,), daemon=True).start()
 
     def _executar_fluxo(self, dados):
-        driver = None
         try:
-            if ChromeOptions is not None:
-                options = ChromeOptions()
-            else:
-                options = webdriver.ChromeOptions()
-
-            options.add_argument("--start-maximized")
-            options.add_experimental_option("detach", True)
-            options.add_experimental_option("excludeSwitches", ["enable-automation"])
-            options.add_experimental_option("useAutomationExtension", False)
-            options.add_argument("--disable-blink-features=AutomationControlled")
-
-            self._atualizar_status("Iniciando Chrome...")
-            driver = webdriver.Chrome(options=options)
-            self.driver = driver
-            wait = WebDriverWait(driver, 25)
-
-            # 1. Tela de Login
-            self._atualizar_status("Acessando autenticação do WorkForce...")
-            driver.get(self.URL_LOGIN)
-
-            usuario_el = wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[id*='wtUserNameInput'], input[type='text']"))
+            sucesso, res = executar_fluxo_workforce(
+                dados=dados,
+                callback_status=self._atualizar_status,
+                login_usuario=self.login_usuario,
+                login_senha=self.login_senha,
+                mapa_nomes=self.mapa_nomes
             )
-            senha_el = wait.until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "input[id*='wtPasswordInput'], input[type='password']"))
-            )
-
-            usuario_el.clear()
-            usuario_el.send_keys(self.login_usuario)
-            senha_el.clear()
-            senha_el.send_keys(self.login_senha)
-
-            btn_login = driver.find_element(
-                By.CSS_SELECTOR, "input[id*='wt16'], input[type='submit'][value*='Entrar'], input[type='submit']"
-            )
-
-            self._atualizar_status(f"Logando como {self.login_usuario}...")
-            btn_login.click()
-
-            wait.until(EC.staleness_of(btn_login))
-            time.sleep(1.5)
-
-            # 2. Navegar para a Nova Ficha
-            self._atualizar_status("Carregando formulário de Nova Ficha...")
-            driver.get(self.URL_NOVA_FICHA)
-
-            wait.until(
-                EC.presence_of_element_located(
-                    (By.XPATH, "//select[contains(@id, 'almoxarifado_materialMedicaoFicha_idBase')]")
-                )
-            )
-            time.sleep(1.0)
-
-            # 3. Base (deve ser selecionada primeiro pois o WorkForce recarrega campos via Ajax)
-            if dados["base"]:
-                self._atualizar_status(f"Configurando Base: {dados['base']}...")
+            if sucesso and res:
+                self.driver = res
                 try:
-                    sel_base_el = driver.find_element(By.XPATH, "//select[contains(@id, 'almoxarifado_materialMedicaoFicha_idBase')]")
-                    s = Select(sel_base_el)
-                    alvo = dados["base"].lower()
-                    alterou_base = False
-                    if alvo not in s.first_selected_option.text.lower():
-                        for opt in s.options:
-                            opt_txt = opt.text.lower()
-                            if alvo in opt_txt or ("santo andr" in opt_txt and "santo andre" in alvo):
-                                s.select_by_visible_text(opt.text)
-                                alterou_base = True
-                                break
-                    if alterou_base:
-                        # Aguarda o recarregamento Ajax dos funcionários da Base
-                        time.sleep(3.0)
+                    incrementar_metrica("fichas_abertas", 1)
                 except Exception:
                     pass
-
-            # 4. Preenchimento de Data e Responsáveis
-            self._atualizar_status("Preenchendo cabeçalho e responsáveis...")
-
-            # Data obrigatória (DD-MM-YYYY)
-            if dados["data"]:
-                try:
-                    el = driver.find_element(By.XPATH, "//input[contains(@id, 'almoxarifado_materialMedicaoFicha_data')]")
-                    el.clear()
-                    el.send_keys(dados["data"])
-                except Exception:
-                    pass
-
-            # Resp Almox (Input + Select)
-            if dados["re_almox"]:
-                try:
-                    inp = driver.find_element(By.XPATH, "//input[contains(@id, 'almoxarifado_materialMedicaoFicha_reRespAlmox') and not(contains(@id, 'reRespAlmox2'))]")
-                    inp.clear()
-                    inp.send_keys(dados["re_almox"])
-                    sel = driver.find_element(By.XPATH, "//select[contains(@id, 'almoxarifado_materialMedicaoFicha_idRespAlmox') and not(contains(@id, 'idRespAlmox2'))]")
-                    self._selecionar_dropdown(driver, sel, dados["re_almox"])
-                except Exception:
-                    pass
-
-            # Resp Almox Entregue (Input + Select)
-            if dados["re_almox_entregue"]:
-                try:
-                    inp = driver.find_element(By.XPATH, "//input[contains(@id, 'almoxarifado_materialMedicaoFicha_reRespAlmox2')]")
-                    inp.clear()
-                    inp.send_keys(dados["re_almox_entregue"])
-                    sel = driver.find_element(By.XPATH, "//select[contains(@id, 'almoxarifado_materialMedicaoFicha_idRespAlmox2')]")
-                    self._selecionar_dropdown(driver, sel, dados["re_almox_entregue"])
-                except Exception:
-                    pass
-
-            # Eletricista 1 (Input + Select)
-            if dados["re_eletricista_1"]:
-                try:
-                    inp = driver.find_element(By.XPATH, "//input[contains(@id, 'almoxarifado_materialMedicaoFicha_reEletricista1')]")
-                    inp.clear()
-                    inp.send_keys(dados["re_eletricista_1"])
-                    sel = driver.find_element(By.XPATH, "//select[contains(@id, 'almoxarifado_materialMedicaoFicha_idEletricista1')]")
-                    self._selecionar_dropdown(driver, sel, dados["re_eletricista_1"])
-                except Exception:
-                    pass
-
-            # Eletricista 2 (Input + Select)
-            if dados["re_eletricista_2"]:
-                try:
-                    inp = driver.find_element(By.XPATH, "//input[contains(@id, 'almoxarifado_materialMedicaoFicha_reEletricista2')]")
-                    inp.clear()
-                    inp.send_keys(dados["re_eletricista_2"])
-                    sel = driver.find_element(By.XPATH, "//select[contains(@id, 'almoxarifado_materialMedicaoFicha_idEletricista2')]")
-                    self._selecionar_dropdown(driver, sel, dados["re_eletricista_2"])
-                except Exception:
-                    pass
-
-            # Recurso
-            if dados["recurso"]:
-                try:
-                    el = driver.find_element(By.XPATH, "//input[contains(@id, 'almoxarifado_materialMedicaoFicha_recurso')]")
-                    el.clear()
-                    el.send_keys(dados["recurso"])
-                except Exception:
-                    pass
-
-            # Observação
-            if dados["observacao"]:
-                try:
-                    obs_els = driver.find_elements(By.XPATH, "//textarea[not(contains(@id, 'ModalConsulta'))]")
-                    if obs_els:
-                        obs_els[0].clear()
-                        obs_els[0].send_keys(dados["observacao"])
-                except Exception:
-                    pass
-
-            # 5. Preenchimento dos Materiais na tabela (Pedido e Fornecido)
-            materiais = dados.get("materiais", [])
-            if materiais:
-                self._atualizar_status(f"Preenchendo {len(materiais)} material(is) na tabela...")
-                time.sleep(1.0)
-
-                js_preencher = """
-                    var materiais = arguments[0];
-                    var table = document.querySelector("table[id*='AlmoxarifadoMaterialMedicaoTable']");
-                    if (!table) return {sucesso: false, erro: "Tabela não encontrada"};
-
-                    var rows = table.querySelectorAll("tbody tr, tr");
-                    var preenchidos = [];
-                    var nao_encontrados = [];
-
-                    for (var m = 0; m < materiais.length; m++) {
-                        var codAlvo = String(materiais[m][0]).trim();
-                        var qtdAlvo = String(materiais[m][1]).trim();
-                        var achou = false;
-
-                        for (var i = 0; i < rows.length; i++) {
-                            var r = rows[i];
-                            var cells = r.querySelectorAll("td");
-                            if (cells.length >= 6) {
-                                var txtCod = cells[1].textContent.trim();
-                                if (txtCod === codAlvo || txtCod.indexOf(codAlvo) !== -1) {
-                                    // Cell 4: Pedido, Cell 5: Fornecido
-                                    var inps = r.querySelectorAll("input[type='number']");
-                                    var inpPed = (cells.length > 4 ? cells[4].querySelector("input") : null) || inps[0];
-                                    var inpForn = (cells.length > 5 ? cells[5].querySelector("input") : null) || inps[1];
-
-                                    if (inpPed) {
-                                        inpPed.focus();
-                                        inpPed.value = qtdAlvo;
-                                        inpPed.dispatchEvent(new Event('input', {bubbles: true}));
-                                        inpPed.dispatchEvent(new Event('change', {bubbles: true}));
-                                        inpPed.blur();
-                                    }
-                                    if (inpForn) {
-                                        inpForn.focus();
-                                        inpForn.value = qtdAlvo;
-                                        inpForn.dispatchEvent(new Event('input', {bubbles: true}));
-                                        inpForn.dispatchEvent(new Event('change', {bubbles: true}));
-                                        inpForn.blur();
-                                    }
-
-                                    r.scrollIntoView({behavior: 'smooth', block: 'center'});
-                                    achou = true;
-                                    preenchidos.push(codAlvo + " (" + qtdAlvo + " un)");
-                                    break;
-                                }
-                            }
-                        }
-                        if (!achou) {
-                            nao_encontrados.push(codAlvo);
-                        }
-                    }
-                    return {sucesso: true, preenchidos: preenchidos, nao_encontrados: nao_encontrados};
-                """
-
-                try:
-                    res = driver.execute_script(js_preencher, materiais)
-                    if res and res.get("sucesso"):
-                        p_list = res.get("preenchidos", [])
-                        n_list = res.get("nao_encontrados", [])
-                        if n_list:
-                            self._atualizar_status(f"Materiais preenchidos: {len(p_list)}. Não encontrados no site: {', '.join(n_list)}")
-                        else:
-                            self._atualizar_status(f"✅ {len(p_list)} material(is) preenchido(s) com sucesso na tabela!")
-                    else:
-                        self._atualizar_status(f"⚠️ Atenção ao preencher materiais: {res.get('erro', 'erro desconhecido')}")
-                except Exception as e_js:
-                    self._atualizar_status(f"⚠️ Falha ao preencher tabela via script: {e_js}")
-
-                time.sleep(1.0)
-
-            # 6. Salvar automaticamente ou deixar para conferência
-            if dados.get("salvar_auto", False):
-                self._atualizar_status("Gravando e salvando Ficha no WorkForce...")
-                try:
-                    btn_salvar = driver.find_element(By.XPATH, "//input[@value='Salvar']")
-                    driver.execute_script("arguments[0].scrollIntoView({block: 'center'});", btn_salvar)
-                    time.sleep(0.5)
-                    btn_salvar.click()
-
-                    # Aguarda redirecionamento ou mensagem de sucesso
-                    time.sleep(3.5)
-                    if "MedicaoFichaId=0" not in driver.current_url:
-                        self._atualizar_status("✅ Ficha criada e salva com sucesso no WorkForce!")
-                    else:
-                        self._atualizar_status("⚠️ Ficha preenchida! Verifique os campos e clique em Salvar no navegador.")
-                except Exception as e_save:
-                    self._atualizar_status(f"⚠️ Ficha preenchida! Clique em Salvar no navegador ({e_save}).")
-            else:
-                self._atualizar_status("✅ Ficha e materiais preenchidos com sucesso! Confira e clique em Salvar no navegador.")
-
-        except Exception as erro:
-            self._atualizar_status(f"⚠️ Atenção durante o fluxo: {erro}")
         finally:
             self.parent_frame.after(0, lambda: self.btn_abrir.configure(state="normal"))
 

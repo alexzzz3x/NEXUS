@@ -10,9 +10,11 @@ SCRIPT20.VBS
 SCRIPT21.VBS
 SCRIPT24.VBS
 SCRIPT25.VBS
+scratch/
 scratch_page.html
 scratch_*
 backup_pre_limpeza_v21/
+BackupNEXUS1809/
 etiquetas_geradas/
 data/*.log
 data/config_rete_*.json

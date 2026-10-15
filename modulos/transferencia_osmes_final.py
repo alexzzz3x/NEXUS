@@ -359,14 +359,39 @@ Next
 '''
 
 
+def _abrir_csv_seguro(caminho):
+    """Abre arquivo CSV com fallback para múltiplos encodings (utf-8-sig, utf-8, cp1252, latin-1)."""
+    if not caminho or not os.path.exists(caminho):
+        return []
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            with open(caminho, "r", newline="", encoding=enc) as f:
+                return list(csv.DictReader(f, delimiter=";"))
+        except UnicodeDecodeError:
+            continue
+    with open(caminho, "r", newline="", encoding="utf-8-sig", errors="replace") as f:
+        return list(csv.DictReader(f, delimiter=";"))
+
+
+def _obter_dados_deposito_recebedor(equipe: str = "", forcar_cl04: bool = False) -> tuple[str, str]:
+    """
+    Retorna (deposito, recebedor) para a equipe.
+    Se forcar_cl04 for True ou a equipe iniciar com 'RCL', retorna ('CL04', 'EMPR 1CL04').
+    Caso contrário (ex: CCL, CCS, CSC, CDC, CVC), retorna o padrão ('CL03', 'EMPR 1CL03').
+    """
+    eq = str(equipe or "").strip().upper()
+    if forcar_cl04 or eq.startswith("RCL"):
+        return "CL04", "EMPR 1CL04"
+    return "CL03", "EMPR 1CL03"
+
+
 def _carregar_amostra_migo(equipe):
     pasta = os.path.join(os.path.expanduser("~"), "Documents", "Assistente Almox")
     padrao = os.path.join(pasta, f"Transferencia_OSME_Vencidas_{equipe}_*.csv")
     arquivos = sorted(glob.glob(padrao), key=os.path.getmtime, reverse=True)
     if not arquivos:
         return []
-    with open(arquivos[0], "r", newline="", encoding="utf-8-sig") as arquivo_csv:
-        registros = list(csv.DictReader(arquivo_csv, delimiter=";"))
+    registros = _abrir_csv_seguro(arquivos[0])
     if not registros:
         return []
 
@@ -380,6 +405,7 @@ def _carregar_amostra_migo(equipe):
         if tipo in tipos:
             continue
         item = {
+            "Equipe": equipe,
             "Material": registro.get("Material", "").strip(),
             "Quantidade": registro.get("Quantidade", "").strip(),
             "Unidade": registro.get("Unidade", "").strip(),
@@ -438,7 +464,7 @@ def _celula_item_sap(sessao, campo, linha):
     return None
 
 
-def _definir_item_sap(sessao, item, linha, log_callback):
+def _definir_item_sap(sessao, item, linha, log_callback, forcar_cl04=False):
     material_ids = [
         "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/subSUB_ITEMDETAIL:SAPLMIGO:0301/subSUB_DETAIL:SAPLMIGO:0300/tabsTS_GOITEM/tabpOK_GOITEM_MATERIAL/ssubSUB_TS_GOITEM_MATERIAL:SAPLMIGO:0310/ctxtGOITEM-MAKTX",
     ]
@@ -504,10 +530,11 @@ def _definir_item_sap(sessao, item, linha, log_callback):
     # A quantidade exibida no grid do MIGO é ERFMG (MENGE existe apenas em
     # algumas variantes antigas).  Sem preencher ERFMG o item permanece com
     # 0,000 e o SAP não disponibiliza a aba de seriais.
+    deposito_sap, _ = _obter_dados_deposito_recebedor(item.get("Equipe", ""), forcar_cl04=forcar_cl04)
     for campo, valor in (
         ("ERFMG", item["Quantidade"]),
         ("WERKS", "EMPR"),
-        ("LGORT", "CL03"),
+        ("LGORT", deposito_sap),
         ("BWART", "Z62"),
     ):
         controle = _celula_item_sap(sessao, campo, linha)
@@ -677,8 +704,7 @@ def _quantidade_para_migo(valor):
 
 def _carregar_itens_consulta_atual(equipe):
     caminho, caminho_conferencia = _obter_consulta_atual(equipe)
-    with open(caminho, "r", newline="", encoding="utf-8-sig") as arquivo_csv:
-        registros = list(csv.DictReader(arquivo_csv, delimiter=";"))
+    registros = _abrir_csv_seguro(caminho)
     if not registros:
         raise RuntimeError("a consulta atual nao possui itens para transferencia")
 
@@ -692,10 +718,7 @@ def _carregar_itens_consulta_atual(equipe):
 
     conferencia = []
     if caminho_conferencia:
-        with open(
-            caminho_conferencia, "r", newline="", encoding="utf-8-sig"
-        ) as arquivo_conferencia:
-            conferencia = list(csv.DictReader(arquivo_conferencia, delimiter=";"))
+        conferencia = _abrir_csv_seguro(caminho_conferencia)
     colunas_conferencia = {
         "Equipe", "Serial", "STS Sistema", "STS Usuario", "Apto",
     }
@@ -716,7 +739,7 @@ def _carregar_itens_consulta_atual(equipe):
         sistema = registro.get("STS Sistema", "").strip().upper()
         usuario = registro.get("STS Usuario", "").strip().upper()
         apto = registro.get("Apto", "").strip().upper()
-        if apto == "SIM" and sistema == "LIDI" and usuario == "DISP" and serial:
+        if apto == "SIM" and "LIDI" in sistema and "DISP" in usuario and serial:
             seriais_aptos.add(serial)
 
     destinos = set()
@@ -740,6 +763,11 @@ def _carregar_itens_consulta_atual(equipe):
         quantidade = _decimal_quantidade(registro.get("Quantidade", ""))
         if not destino or not origem or not material:
             raise RuntimeError(f"linha {numero_linha}: ordem ou material vazio")
+        if destino == origem:
+            raise RuntimeError(
+                f"linha {numero_linha}: BLOQUEIO DE SEGURANÇA! Ordem Destino ({destino}) é idêntica à "
+                f"Ordem Origem ({origem}). Impossível transferir material para a mesma ordem."
+            )
         if tipo == "SERIALIZADO":
             if not seriais:
                 raise RuntimeError(f"linha {numero_linha}: material serializado sem serial")
@@ -769,6 +797,12 @@ def _carregar_itens_consulta_atual(equipe):
             "Seriais": seriais,
         })
 
+    if not itens:
+        raise RuntimeError(
+            "Nenhum item válido para transferência encontrado (linhas com saldo negativo/zero "
+            "foram ignoradas e medidores fora de LIDI/DISP foram mantidos na ordem antiga)."
+        )
+
     if len(destinos) != 1:
         raise RuntimeError(
             "a consulta deve possuir exatamente uma ordem valida de destino; encontradas: "
@@ -789,7 +823,60 @@ def _controle_opcional(sessao, identificador):
         return None
 
 
-def _abrir_migo_movimento(sessao, movimento):
+def _preencher_data_lancamento(sessao, dt_str):
+    if not dt_str:
+        return
+    for portador in ("0003", "0002"):
+        try:
+            # 1. Garante que a aba Geral do Cabeçalho está acessível
+            try:
+                sessao.findById(
+                    f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{portador}/"
+                    "subSUB_HEADER:SAPLMIGO:0101/subSUB_HEADER:SAPLMIGO:0100/"
+                    "tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL"
+                ).select()
+            except Exception:
+                # Se o cabeçalho estiver recolhido, clica no botão de expansão do cabeçalho
+                try:
+                    sessao.findById(
+                        f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{portador}/"
+                        "subSUB_HEADER:SAPLMIGO:0102/btnBUTTON_HEADER"
+                    ).press()
+                    time.sleep(0.25)
+                    sessao.findById(
+                        f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{portador}/"
+                        "subSUB_HEADER:SAPLMIGO:0101/subSUB_HEADER:SAPLMIGO:0100/"
+                        "tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL"
+                    ).select()
+                except Exception:
+                    pass
+
+            # 2. Preenche a data de lançamento
+            campo_budat = sessao.findById(
+                f"wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:{portador}/"
+                "subSUB_HEADER:SAPLMIGO:0101/subSUB_HEADER:SAPLMIGO:0100/"
+                "tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL/"
+                "ssubSUB_TS_GOHEAD_GENERAL:SAPLMIGO:0112/ctxtGOHEAD-BUDAT"
+            )
+            if campo_budat is not None:
+                campo_budat.text = dt_str
+                sessao.findById("wnd[0]").sendVKey(0)
+                time.sleep(0.35)
+                # Fechar eventuais popups informativos
+                for _ in range(4):
+                    try:
+                        w1 = sessao.Children(1)
+                        if w1 is not None:
+                            w1.sendVKey(0)
+                            time.sleep(0.2)
+                    except Exception:
+                        break
+                break
+        except Exception:
+            continue
+
+
+def _abrir_migo_movimento(sessao, movimento, data_lancamento=None):
     sessao.findById("wnd[0]/tbar[0]/okcd").text = "/nMIGO"
     _pressionar_enter(sessao, 1.5)
     _garantir_detalhe_aberto(sessao)
@@ -816,15 +903,8 @@ def _abrir_migo_movimento(sessao, movimento):
     ])
     movimento_controle.text = movimento
     _pressionar_enter(sessao, 1.0)
-    data_contabilizacao = _controle_opcional(
-        sessao,
-        "wnd[0]/usr/ssubSUB_MAIN_CARRIER:SAPLMIGO:0003/"
-        "subSUB_HEADER:SAPLMIGO:0101/subSUB_HEADER:SAPLMIGO:0100/"
-        "tabsTS_GOHEAD/tabpOK_GOHEAD_GENERAL/"
-        "ssubSUB_TS_GOHEAD_GENERAL:SAPLMIGO:0112/ctxtGOHEAD-BUDAT",
-    )
-    if data_contabilizacao is not None:
-        data_contabilizacao.text = datetime.now().strftime("%d.%m.%Y")
+    dt_final = str(data_lancamento).strip() if (data_lancamento and str(data_lancamento).strip()) else datetime.now().strftime("%d.%m.%Y")
+    _preencher_data_lancamento(sessao, dt_final)
 
 
 def _ids_aba(nome):
@@ -928,7 +1008,7 @@ def _preencher_seriais(sessao, seriais):
         time.sleep(0.8)
 
 
-def _preencher_item_movimento(sessao, item, linha, movimento, ordem, log_callback):
+def _preencher_item_movimento(sessao, item, linha, movimento, ordem, log_callback, equipe=None, forcar_cl04=False):
     _preparar_linha_item(sessao, item, linha, log_callback)
     aba_material = _selecionar_aba(sessao, "MATERIAL")
     campo_material = _aguardar_sap_sap(sessao, [
@@ -954,9 +1034,13 @@ def _preencher_item_movimento(sessao, item, linha, movimento, ordem, log_callbac
     if movimento_item is not None:
         movimento_item.text = movimento
         _pressionar_enter(sessao, 0.5)
+
+    eq_item = equipe or item.get("Equipe", "")
+    deposito_sap, recebedor_sap = _obter_dados_deposito_recebedor(eq_item, forcar_cl04=forcar_cl04)
+
     _aguardar_sap_sap(sessao, [prefixo_destino + "ctxtGOITEM-NAME1"]).text = "EMPR"
-    _aguardar_sap_sap(sessao, [prefixo_destino + "ctxtGOITEM-LGOBE"]).text = "CL03"
-    _aguardar_sap_sap(sessao, [prefixo_destino + "txtGOITEM-WEMPF"]).text = "EMPR 1CL03"
+    _aguardar_sap_sap(sessao, [prefixo_destino + "ctxtGOITEM-LGOBE"]).text = deposito_sap
+    _aguardar_sap_sap(sessao, [prefixo_destino + "txtGOITEM-WEMPF"]).text = recebedor_sap
     _pressionar_enter(sessao, 0.8)
 
     aba_conta = _selecionar_aba(sessao, "ACCOUNT")
@@ -983,7 +1067,7 @@ def _preencher_item_movimento(sessao, item, linha, movimento, ordem, log_callbac
         _pressionar_enter(sessao, 0.4)
     log_callback(
         f"{movimento}: item {linha + 1}/{item['Material']} preparado "
-        f"na ordem {ordem}.\n"
+        f"na ordem {ordem} (Dep: {deposito_sap} | Rec: {recebedor_sap}).\n"
     )
 
 
@@ -1090,12 +1174,19 @@ def _salvar_historico_documento(
         return caminho_pendente
 
 
-def _executar_movimento_migo(sessao, movimento, itens, ordem_destino, log_callback):
-    _abrir_migo_movimento(sessao, movimento)
+def _executar_movimento_migo(sessao, movimento, itens, ordem_destino, log_callback, data_lancamento=None, equipe=None, forcar_cl04=False):
+    _abrir_migo_movimento(sessao, movimento, data_lancamento=data_lancamento)
     for indice, item in enumerate(itens):
+        if equipe and not item.get("Equipe"):
+            item["Equipe"] = equipe
         ordem = item["Ordem Origem"] if movimento == "Z62" else ordem_destino
+        if movimento == "Z61" and ordem == item["Ordem Origem"]:
+            raise RuntimeError(
+                f"BLOQUEIO CRÍTICO: Tentativa de estornar e reapontar Z61 para a mesma OSME de origem ({ordem})! "
+                "A OSME de destino deve ser uma nova OSME vigente obtida na IW39."
+            )
         _preencher_item_movimento(
-            sessao, item, indice, movimento, ordem, log_callback
+            sessao, item, indice, movimento, ordem, log_callback, equipe=equipe, forcar_cl04=forcar_cl04
         )
         if indice + 1 < len(itens):
             _avancar_proximo_item(
@@ -1106,21 +1197,22 @@ def _executar_movimento_migo(sessao, movimento, itens, ordem_destino, log_callba
     return _registrar_documento_sap(sessao, movimento)
 
 
-def executar_fluxo_transferencia_sap(equipe, log_callback):
+def executar_fluxo_transferencia_sap(equipe, log_callback, data_lancamento=None, forcar_cl04=False):
     equipe = equipe.strip().upper()
     if not re.fullmatch(r"[A-Z0-9]{1,12}", equipe):
         raise RuntimeError("codigo de equipe invalido")
+    dep_sap, rec_sap = _obter_dados_deposito_recebedor(equipe, forcar_cl04=forcar_cl04)
     arquivo_consulta, itens, ordem_destino = _carregar_itens_consulta_atual(equipe)
     identificador = uuid.uuid4().hex
     log_callback(
         f"Fluxo completo da consulta atual: {len(itens)} item(ns), "
-        f"destino {ordem_destino}.\n"
+        f"destino {ordem_destino} [Depósito: {dep_sap} | Recebedor: {rec_sap}].\n"
     )
     pythoncom.CoInitialize()
     try:
         sessao = _sessao_sap_sap()
         documento_z62, mensagem_z62 = _executar_movimento_migo(
-            sessao, "Z62", itens, ordem_destino, log_callback
+            sessao, "Z62", itens, ordem_destino, log_callback, data_lancamento=data_lancamento, equipe=equipe, forcar_cl04=forcar_cl04
         )
         historico = _salvar_historico_documento(
             identificador, equipe, "Z62", documento_z62, itens,
@@ -1135,7 +1227,7 @@ def executar_fluxo_transferencia_sap(equipe, log_callback):
             )
 
         documento_z61, mensagem_z61 = _executar_movimento_migo(
-            sessao, "Z61", itens, ordem_destino, log_callback
+            sessao, "Z61", itens, ordem_destino, log_callback, data_lancamento=data_lancamento, equipe=equipe, forcar_cl04=forcar_cl04
         )
         historico_z61 = _salvar_historico_documento(
             identificador, equipe, "Z61", documento_z61, itens,
@@ -1158,24 +1250,27 @@ def executar_fluxo_transferencia_sap(equipe, log_callback):
         pythoncom.CoUninitialize()
 
 
-def executar_processo_completo(equipe, log_callback, serial_callback=None):
+def executar_processo_completo(equipe, log_callback, serial_callback=None, data_lancamento=None, forcar_cl04=False):
     equipe = equipe.strip().upper()
-    log_callback("ETAPA 1/3 - Consulta e conferencia na ZUDWM_237\n")
-    _executar_consulta(equipe, log_callback, serial_callback=serial_callback)
-    # A consulta somente e registrada em memoria depois que a
-    # lista e a conferencia da mesma execucao passam por todas as validacoes.
-    _obter_consulta_atual(equipe)
-    log_callback("ETAPA 2/3 - Estorno das ordens vencidas com Z62\n")
-    resultado = executar_fluxo_transferencia_sap(equipe, log_callback)
-    log_callback("ETAPA 3/3 - Saida para a ordem valida com Z61 concluida\n")
-    return resultado
+    try:
+        log_callback("ETAPA 1/3 - Consulta e conferencia na ZUDWM_237\n")
+        _executar_consulta(equipe, log_callback, serial_callback=serial_callback)
+        _obter_consulta_atual(equipe)
+        log_callback("ETAPA 2/3 - Estorno das ordens vencidas com Z62\n")
+        resultado = executar_fluxo_transferencia_sap(equipe, log_callback, data_lancamento=data_lancamento, forcar_cl04=forcar_cl04)
+        log_callback("ETAPA 3/3 - Saida para a ordem valida com Z61 concluida\n")
+        return resultado
+    except Exception as e:
+        log_callback(f"\n❌ FALHA NO PROCESSO da equipe {equipe}: {e}\n")
+        raise
 
 
 def _executar_consulta(equipe, log_callback, serial_callback=None):
     equipe = equipe.strip().upper()
     if not re.fullmatch(r"[A-Z0-9]{1,12}", equipe):
-        log_callback("ERRO: codigo de equipe invalido. Use somente letras e numeros.\n")
-        return
+        msg = "ERRO: codigo de equipe invalido. Use somente letras e numeros."
+        log_callback(f"{msg}\n")
+        raise ValueError(msg)
     pasta = _pasta_assistente()
     padrao = os.path.join(pasta, f"Transferencia_OSME_Vencidas_{equipe}_*.csv")
     padrao_conferencia = os.path.join(
@@ -1200,11 +1295,9 @@ def _executar_consulta(equipe, log_callback, serial_callback=None):
             and os.path.getmtime(caminho) >= inicio - 2
         ]
         if not arquivos_novos:
-            log_callback(
-                "AVISO: a consulta nao gerou uma lista atual; "
-                "o fluxo MIGO permanece bloqueado.\n"
-            )
-            return
+            msg = f"AVISO: Nenhuma lista de transferência foi gerada para {equipe}. Nenhum item elegível para movimentação."
+            log_callback(f"\n{msg}\n")
+            raise RuntimeError(msg)
         caminho_atual = max(arquivos_novos, key=os.path.getmtime)
         conferencia_atual = (
             max(conferencias_novas, key=os.path.getmtime)
@@ -1224,11 +1317,12 @@ def _executar_consulta(equipe, log_callback, serial_callback=None):
         log_callback("Fluxo completo Z62/Z61 liberado para esta consulta.\n")
     except Exception as e:
         _limpar_consulta_atual(equipe)
-        log_callback(f"\nERRO na consulta: {e}\n")
+        log_callback(f"\n❌ ERRO na consulta de {equipe}: {e}\n")
+        raise
 
 
-def executar(equipe, log_callback, serial_callback=None):
+def executar(equipe, log_callback, serial_callback=None, data_lancamento=None, forcar_cl04=False):
     """Executa consulta atual, Z62, Z61 e persistencia dos documentos SAP."""
     return executar_processo_completo(
-        equipe, log_callback, serial_callback=serial_callback
+        equipe, log_callback, serial_callback=serial_callback, data_lancamento=data_lancamento, forcar_cl04=forcar_cl04
     )

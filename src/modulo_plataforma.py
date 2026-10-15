@@ -33,19 +33,35 @@ from utils_ui import show_toast, play_sound
 
 
 DEFAULT_PALETAS = {
+    "Nexus": {
+        "bg": "#090d16",
+        "container": "#111827",
+        "texto": "#f8fafc",
+        "accent": "#00d2ff",
+        "hover": "#0284c7",
+        "input": "#1a2436"
+    },
+    "Azul Delray": {
+        "bg": "#0a192f",
+        "container": "#172a45",
+        "texto": "#ffffff",
+        "accent": "#38bdf8",
+        "hover": "#0284c7",
+        "input": "#1f3a60"
+    },
     "Conecta Blue": {
         "bg": "#0a192f",
         "container": "#172a45",
         "texto": "#ffffff",
-        "accent": "#f57c00",
-        "hover": "#e65100",
+        "accent": "#38bdf8",
+        "hover": "#0284c7",
         "input": "#1f3a60"
     }
 }
 
 
 def obter_palette_dict(tema_nome, paletas):
-    c = paletas.get(tema_nome, paletas.get("Conecta Blue", DEFAULT_PALETAS["Conecta Blue"]))
+    c = paletas.get(tema_nome, paletas.get("Nexus", DEFAULT_PALETAS["Nexus"]))
     is_light = "Light" in tema_nome or c.get("bg", "").lower() in ["#ffffff", "#f3f6fb"]
 
     return {
@@ -77,7 +93,7 @@ class AbaRelatorioPlataforma:
         self.parent_frame = parent_frame
         self.label_status_global = label_status_global
         self.paletas = paletas or DEFAULT_PALETAS
-        self.obter_tema_atual = obter_tema_atual or (lambda: "Conecta Blue")
+        self.obter_tema_atual = obter_tema_atual or (lambda: "Nexus")
         self.executando = False
         self.resultado_atual = None
         self.caminho_ultimo_excel = None
@@ -88,7 +104,7 @@ class AbaRelatorioPlataforma:
         self._verificar_arquivo_padrao()
 
     def _cores(self, tema_nome):
-        return self.paletas.get(tema_nome, self.paletas.get("Conecta Blue"))
+        return self.paletas.get(tema_nome, self.paletas.get("Nexus", DEFAULT_PALETAS["Nexus"]))
 
     def _log(self, mensagem):
         try:

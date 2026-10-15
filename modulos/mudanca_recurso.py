@@ -814,90 +814,153 @@ def aplicar_filtro_conferencia_medidores(itens, resultado_conferencia, log_callb
 
 
 # =========================================================================
-# ETAPA 2: BUSCA DA ORDEM ATIVA NA IW39
-# =========================================================================
+def _confirmar_popups_informativos(sessao, max_tentativas=6):
+    """Confirma com Enter/btn[0] janelas modais informativas (wnd[1]) sem cancelar a pesquisa."""
+    tentativas = 0
+    while getattr(sessao, "Children", None) and sessao.Children.Count > 1 and tentativas < max_tentativas:
+        tentativas += 1
+        try:
+            sessao.findById("wnd[1]").sendVKey(0)
+        except Exception:
+            try:
+                sessao.findById("wnd[1]/tbar[0]/btn[0]").press()
+            except Exception:
+                try:
+                    sessao.findById("wnd[1]").close()
+                except Exception:
+                    break
+        time.sleep(0.3)
+
 
 def buscar_ordem_destino_iw39(sessao, equipe_destino, log_callback):
     """
     Acessa a IW39 com DY_PARVW = 'Z2' e DY_PARNR = equipe_destino,
     extraindo a ordem ativa para imputação no Z61.
+    Tenta tanto em minúsculas quanto em maiúsculas, trata popups informativos,
+    lê telas de cabeçalho individual ou grade ALV com ordenação por GLTRP.
     """
-    log_callback(f"🔎 Consultando IW39 para localizar ordem ativa da equipe destino '{equipe_destino}'...\n")
-    _navegar_transacao(sessao, "IW39")
+    equipe_alvo = str(equipe_destino or "").strip()
+    log_callback(f"🔎 Consultando IW39 para localizar ordem ativa da equipe destino '{equipe_alvo}'...\n")
 
-    combo_parceiro = _aguardar_controle(sessao, "wnd[0]/usr/cmbDY_PARVW", timeout=12)
-    combo_parceiro.key = "Z2"
-    
-    campo_parceiro = _aguardar_controle(sessao, "wnd[0]/usr/ctxtDY_PARNR", timeout=10)
-    campo_parceiro.text = equipe_destino
-    campo_parceiro.caretPosition = len(equipe_destino)
-    _pressionar_enter(sessao, 0.4)
-
-    # Status da Ordem na IW39: Apenas ordens ativas (Pendente e Em Processamento), NUNCA Encerrado ou Histórico
-    status_config = [
-        ("wnd[0]/usr/chkDY_OFN", True),   # Pendente
-        ("wnd[0]/usr/chkDY_IAR", True),   # Em processamento
-        ("wnd[0]/usr/chkDY_MAB", False),  # Encerrado (MAB = Mit Abgeschlossenen) -> NUNCA MARCAR
-        ("wnd[0]/usr/chkDY_ABG", False),  # Encerrado alternativo
-        ("wnd[0]/usr/chkDY_HIS", False),  # Histórico -> DESMARCADO
-    ]
-    for chk_id, marcar in status_config:
-        ctrl = _controle_opcional(sessao, chk_id)
-        if ctrl is not None:
-            try:
-                ctrl.selected = marcar
-            except Exception:
-                pass
-
-    # Executa F8
-    sessao.findById("wnd[0]/tbar[1]/btn[8]").press()
-    time.sleep(1.2)
+    variacoes_equipe = [equipe_alvo.lower(), equipe_alvo.upper()]
+    if equipe_alvo.lower() == equipe_alvo.upper():
+        variacoes_equipe = [equipe_alvo]
 
     ordem_encontrada = ""
+    ultimo_status_sap = ""
 
-    # Caso 1: Abre diretamente no detalhe da Ordem (uma única ordem)
-    campo_ordem_detalhe = _controle_opcional(
-        sessao,
-        "wnd[0]/usr/subSUB_ALL:SAPLCOIH:3001/ssubSUB_LEVEL:SAPLCOIH:1100/subSUB_KOPF:SAPLCOIH:1102/txtCAUFVD-AUFNR"
-    )
-    if campo_ordem_detalhe is not None:
-        ordem_encontrada = str(campo_ordem_detalhe.text).strip()
+    for eq_busca in variacoes_equipe:
+        _navegar_transacao(sessao, "IW39")
 
-    # Caso 2: Abre na grade de ordens (múltiplas ordens)
-    if not ordem_encontrada:
-        grid_iw39 = _controle_opcional(sessao, "wnd[0]/usr/cntlGRID1/shellcont/shell")
-        if grid_iw39 is not None:
-            try:
-                # Ordena por GLTRP decrescente para pegar a mais recente
-                grid_iw39.setCurrentCell(-1, "GLTRP")
-                grid_iw39.selectColumn("GLTRP")
-                sessao.findById("wnd[0]/tbar[1]/btn[40]").press() # Ordenação decrescente
-                time.sleep(0.5)
-                grid_iw39 = sessao.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
-            except Exception:
-                pass
+        combo_parceiro = _aguardar_controle(sessao, "wnd[0]/usr/cmbDY_PARVW", timeout=12)
+        combo_parceiro.key = "Z2"
 
-            total_ordens = int(grid_iw39.RowCount)
-            for r in range(total_ordens):
+        campo_parceiro = _aguardar_controle(sessao, "wnd[0]/usr/ctxtDY_PARNR", timeout=10)
+        campo_parceiro.text = eq_busca
+        campo_parceiro.caretPosition = len(eq_busca)
+        _pressionar_enter(sessao, 0.4)
+
+        # Status da Ordem na IW39: Apenas ordens ativas (Pendente e Em Processamento), NUNCA Encerrado ou Histórico
+        status_config = [
+            ("wnd[0]/usr/chkDY_OFN", True),   # Pendente
+            ("wnd[0]/usr/chkDY_IAR", True),   # Em processamento
+            ("wnd[0]/usr/chkDY_MAB", False),  # Encerrado (MAB) -> NUNCA MARCAR
+            ("wnd[0]/usr/chkDY_ABG", False),  # Encerrado alternativo
+            ("wnd[0]/usr/chkDY_HIS", False),  # Histórico -> DESMARCADO
+        ]
+        for chk_id, marcar in status_config:
+            ctrl = _controle_opcional(sessao, chk_id)
+            if ctrl is not None:
                 try:
-                    num_ord = str(grid_iw39.getCellValue(r, "AUFNR")).strip()
-                    rec_ord = str(grid_iw39.getCellValue(r, "PARNR")).strip().upper()
-                    if num_ord:
-                        if not rec_ord or rec_ord == equipe_destino.upper():
-                            ordem_encontrada = num_ord
-                            break
+                    ctrl.selected = marcar
                 except Exception:
                     pass
 
-    # Retorna para tela inicial
+        # Executa F8
+        sessao.findById("wnd[0]/tbar[1]/btn[8]").press()
+        time.sleep(0.8)
+
+        # Confirma possíveis popups informativos (ex: avisos durante a seleção)
+        _confirmar_popups_informativos(sessao)
+
+        # Caso 1: Abre diretamente no detalhe da Ordem (uma única ordem)
+        # 1.1 Tenta extrair do título da janela ativa com Regex
+        try:
+            w_title = str(sessao.ActiveWindow.Text)
+            m_ord = re.search(r"\b(1000\d{8}|\d{10,12})\b", w_title)
+            if m_ord:
+                ordem_encontrada = m_ord.group(1).strip()
+        except Exception:
+            pass
+
+        # 1.2 Tenta achar pelo controle CAUFVD-AUFNR em caminhos conhecidos
+        if not ordem_encontrada:
+            for id_cauf in [
+                "wnd[0]/usr/subSUB_ALL:SAPLCOIH:3001/ssubSUB_LEVEL:SAPLCOIH:1100/subSUB_KOPF:SAPLCOIH:1102/txtCAUFVD-AUFNR",
+                "wnd[0]/usr/subSUB_ALL:SAPLCOIH:3001/ssubSUB_LEVEL:SAPLCOIH:1100/subSUB_KOPF:SAPLCOIH:1102/ctxtCAUFVD-AUFNR",
+                "wnd[0]/usr/subSUB_ALL:SAPLCOIH:0101/subSUB_HEADER:SAPLCOIH:0105/ctxtCAUFVD-AUFNR",
+                "wnd[0]/usr/subSUB_ALL:SAPLCOIH:0101/subSUB_HEADER:SAPLCOIH:0105/txtCAUFVD-AUFNR",
+                "wnd[0]/usr/ctxtCAUFVD-AUFNR",
+                "wnd[0]/usr/txtCAUFVD-AUFNR",
+            ]:
+                ctrl_ord = _controle_opcional(sessao, id_cauf)
+                if ctrl_ord is not None:
+                    txt_v = str(ctrl_ord.text).strip()
+                    if txt_v.isdigit() and len(txt_v) >= 8:
+                        ordem_encontrada = txt_v
+                        break
+
+        # Caso 2: Abre na grade de ordens (múltiplas ordens)
+        if not ordem_encontrada:
+            grid_iw39 = _controle_opcional(sessao, "wnd[0]/usr/cntlGRID1/shellcont/shell")
+            if grid_iw39 is not None:
+                try:
+                    # Ordena por GLTRP decrescente para pegar a mais recente
+                    grid_iw39.setCurrentCell(-1, "GLTRP")
+                    grid_iw39.selectColumn("GLTRP")
+                    sessao.findById("wnd[0]/tbar[1]/btn[40]").press() # Ordenação decrescente
+                    time.sleep(0.5)
+                    grid_iw39 = sessao.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
+                except Exception:
+                    pass
+
+                total_ordens = int(grid_iw39.RowCount)
+                for r in range(total_ordens):
+                    try:
+                        num_ord = str(grid_iw39.getCellValue(r, "AUFNR")).strip()
+                        if not num_ord:
+                            num_ord = str(grid_iw39.getCellValue(r, "ORDERID")).strip()
+                        rec_ord = str(grid_iw39.getCellValue(r, "PARNR")).strip().upper()
+                        if num_ord:
+                            if not rec_ord or rec_ord == equipe_alvo.upper():
+                                ordem_encontrada = num_ord
+                                break
+                    except Exception:
+                        pass
+
+        # Captura status bar se houver
+        try:
+            sbar = _controle_opcional(sessao, "wnd[0]/sbar")
+            if sbar is not None and str(sbar.Text).strip():
+                ultimo_status_sap = str(sbar.Text).strip()
+        except Exception:
+            pass
+
+        if ordem_encontrada:
+            break
+
+    # Retorna para tela inicial com comando /n seguro
     try:
-        sessao.findById("wnd[0]/tbar[0]/btn[15]").press()
-        sessao.findById("wnd[0]/tbar[0]/btn[15]").press()
+        sessao.findById("wnd[0]/tbar[0]/okcd").text = "/n"
+        sessao.findById("wnd[0]").sendVKey(0)
     except Exception:
         pass
 
     if not ordem_encontrada:
-        raise RuntimeError(f"Nenhuma ordem ativa localizada na IW39 para o recurso de destino '{equipe_destino}'.")
+        msg_detalhe = f" (SAP: {ultimo_status_sap})" if ultimo_status_sap else ""
+        raise RuntimeError(
+            f"Nenhuma ordem ativa localizada na IW39 para o recurso de destino '{equipe_alvo}'{msg_detalhe}."
+        )
 
     log_callback(f"🎯 Ordem ativa de destino localizada com sucesso: {ordem_encontrada}\n")
     return ordem_encontrada
@@ -1165,14 +1228,21 @@ def _verificar_e_gravar(sessao, movimento, log_callback):
 # ORQUESTRADOR PRINCIPAL
 # =========================================================================
 
-def executar_mudanca_recurso(recurso_antigo, recurso_novo, log_callback, serial_callback=None, progresso_callback=None):
+def executar_mudanca_recurso(
+    recurso_antigo,
+    recurso_novo,
+    log_callback,
+    serial_callback=None,
+    progresso_callback=None,
+    ordem_destino_manual=None
+):
     """
-    Executa o fluxo completo de Mudança de Recurso:
-    1. Consulta ZUDWM_237 + Auditoria ZMMCSE001 (Etapa 1/4 - 25%)
-    2. MIGO Z62 Estorno na origem (Etapa 2/4 - 50%)
-    3. IW39 Ordem ativa destino (Etapa 3/4 - 75%)
-    4. MIGO Z61 Saída no destino (Etapa 4/4 - 100%)
-    5. Gravação em histórico
+    Executa o fluxo completo e seguro de Mudança de Recurso com Validação Pré-Voo (Fail-Fast):
+    1. ZUDWM_237 + Auditoria ZMMCSE001: Consulta saldos positivos na origem (Etapa 1/4 - 25%)
+    2. IW39 Pré-Validação: Localização e validação da Ordem Ativa Destino ANTES de qualquer MIGO (Etapa 2/4 - 50%)
+    3. MIGO Z62: Estorno/devolução das ordens antigas na origem (Etapa 3/4 - 75%)
+    4. MIGO Z61: Saída/imputação para a ordem destino já validada (Etapa 4/4 - 100%)
+    5. Gravação em histórico e conclusão
     """
     recurso_antigo = str(recurso_antigo or "").strip().upper()
     recurso_novo = str(recurso_novo or "").strip().upper()
@@ -1191,6 +1261,8 @@ def executar_mudanca_recurso(recurso_antigo, recurso_novo, log_callback, serial_
 
     pythoncom.CoInitialize()
     etapa_atual = 1
+    doc_z62 = ""
+    doc_z61 = ""
     try:
         if progresso_callback:
             progresso_callback(1, 0.05, "Etapa 1/4: Conectando ao SAP GUI...")
@@ -1233,11 +1305,30 @@ def executar_mudanca_recurso(recurso_antigo, recurso_novo, log_callback, serial_
             if todos_seriais:
                 serial_callback(todos_seriais)
 
-        # ETAPA 2: MIGO Z62 (Devolução/Estorno das ordens antigas)
+        # ETAPA 2: Pré-Validação da Ordem Ativa Destino na IW39 (FAIL-FAST PRÉ-MIGO)
+        # OBRIGATÓRIO: Esta verificação ocorre ANTES de qualquer movimentação contábil no SAP.
         etapa_atual = 2
         if progresso_callback:
-            progresso_callback(2, 0.50, "Etapa 2/4 (50%): Estorno de Saldos das Ordens Antigas (MIGO Z62)...")
-        log_callback("\n--- [2/4] ESTORNO DE SALDOS DAS ORDENS ANTIGAS (MIGO Z62) ---\n")
+            progresso_callback(2, 0.50, "Etapa 2/4 (50%): Pré-Validação da Ordem Ativa Destino (IW39)...")
+        log_callback(f"\n--- [2/4] PRÉ-VALIDAÇÃO DA ORDEM ATIVA DO RECURSO NOVO (IW39: {recurso_novo}) ---\n")
+        
+        ordem_manual_limpa = str(ordem_destino_manual or "").strip()
+        if ordem_manual_limpa:
+            ordem_destino = ordem_manual_limpa
+            log_callback(f"📌 Ordem destino informada manualmente pelo operador: {ordem_destino}\n")
+        else:
+            ordem_destino = buscar_ordem_destino_iw39(sessao, recurso_novo, log_callback)
+
+        if not ordem_destino:
+            raise RuntimeError(f"Nenhuma ordem ativa definida para o recurso destino '{recurso_novo}'.")
+
+        log_callback(f"✅ Ordem destino '{ordem_destino}' 100% confirmada! Prosseguindo com segurança para movimentações MIGO...\n")
+
+        # ETAPA 3: MIGO Z62 (Devolução/Estorno das ordens antigas)
+        etapa_atual = 3
+        if progresso_callback:
+            progresso_callback(3, 0.75, "Etapa 3/4 (75%): Estorno de Saldos das Ordens Antigas (MIGO Z62)...")
+        log_callback("\n--- [3/4] ESTORNO DE SALDOS DAS ORDENS ANTIGAS (MIGO Z62) ---\n")
         _exibir_resumo_ordens(itens, log_callback, fase="MIGO Z62")
         _abrir_migo(sessao, "Z62")
         for idx, item in enumerate(itens):
@@ -1254,13 +1345,6 @@ def executar_mudanca_recurso(recurso_antigo, recurso_novo, log_callback, serial_
                 _avancar_proximo_item(sessao)
 
         doc_z62 = _verificar_e_gravar(sessao, "Z62", log_callback)
-
-        # ETAPA 3: Localizar Ordem Destino na IW39
-        etapa_atual = 3
-        if progresso_callback:
-            progresso_callback(3, 0.75, "Etapa 3/4 (75%): Consulta da Ordem Ativa Destino (IW39)...")
-        log_callback(f"\n--- [3/4] CONSULTA DA ORDEM ATIVA DO RECURSO NOVO (IW39: {recurso_novo}) ---\n")
-        ordem_destino = buscar_ordem_destino_iw39(sessao, recurso_novo, log_callback)
 
         # ETAPA 4: MIGO Z61 (Saída para a ordem do novo recurso)
         etapa_atual = 4
@@ -1340,17 +1424,39 @@ def executar_mudanca_recurso(recurso_antigo, recurso_novo, log_callback, serial_
         msg_erro = str(e)
         nomes_etapas = {
             1: "Consulta ZUDWM_237 e Auditoria ZMMCSE001",
-            2: "Estorno de Saldos das Ordens Antigas (MIGO Z62)",
-            3: "Consulta da Ordem Ativa Destino (IW39)",
+            2: "Consulta e Validação da Ordem Ativa Destino (IW39)",
+            3: "Estorno de Saldos das Ordens Antigas (MIGO Z62)",
             4: "Transferência para a Ordem Nova (MIGO Z61)",
         }
         nome_etapa = nomes_etapas.get(etapa_atual, "Execução SAP")
+
+        aviso_seguranca = ""
+        if etapa_atual <= 2:
+            aviso_seguranca = (
+                "🛡️ ZERO IMPACTO NO SAP: O processo falhou antes de qualquer movimentação contábil.\n"
+                "• NENHUM estorno (Z62) foi realizado e nenhum medidor ou material foi retirado da origem.\n"
+                "• Todos os saldos e ordens permanecem 100% íntegros no SAP."
+            )
+        elif etapa_atual == 3:
+            aviso_seguranca = (
+                "⚠️ ATENÇÃO: Falha durante o estorno Z62.\n"
+                "• Verifique se o documento foi gerado no SAP antes de tentar novamente."
+            )
+        elif etapa_atual == 4:
+            aviso_seguranca = (
+                f"⚠️ ATENÇÃO CRÍTICA: O estorno Z62 ({doc_z62}) foi concluído com sucesso no SAP!\n"
+                f"• Contudo, a saída Z61 para o destino falhou.\n"
+                f"• Os materiais estão temporariamente no saldo do depósito {DEPOSITO_PADRAO}.\n"
+                f"• Utilize a rotina de Saída Z61 de Recuperação para imputar os itens na ordem de destino sem retrabalho manual."
+            )
+
         bloco_erro = (
             f"\n=======================================================\n"
             f"❌ FALHA NA EXECUÇÃO (ETAPA {etapa_atual}/4: {nome_etapa.upper()})\n"
             f"• Mensagem/Motivo: {msg_erro}\n"
             f"• Recurso Origem: {recurso_antigo} | Recurso Destino: {recurso_novo}\n"
             f"• Horário: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n"
+            f"{aviso_seguranca}\n"
             f"• Ação recomendada: Verifique os detalhes das mensagens do SAP acima no terminal.\n"
             f"=======================================================\n"
         )
@@ -1361,13 +1467,103 @@ def executar_mudanca_recurso(recurso_antigo, recurso_novo, log_callback, serial_
         pythoncom.CoUninitialize()
 
 
+def executar_apenas_saida_z61(
+    recurso_destino,
+    ordem_destino,
+    itens,
+    log_callback,
+    progresso_callback=None
+):
+    """
+    Rotina de Recuperação / Saída Direta Z61:
+    Permite imputar na ordem de destino itens que já foram previamente estornados (Z62),
+    sem repetir a consulta de origem nem gerar duplicidade de estorno.
+    """
+    recurso_destino = str(recurso_destino or "").strip().upper()
+    ordem_destino = str(ordem_destino or "").strip()
+
+    if not recurso_destino or not ordem_destino:
+        raise ValueError("Informe o recurso de destino e o número da ordem contábil de destino.")
+
+    if not itens:
+        raise ValueError("Nenhum item fornecido para a realização da saída Z61.")
+
+    log_callback(f"\n=======================================================\n")
+    log_callback(f"⚡ INICIANDO RECUPERAÇÃO / SAÍDA Z61 DIRETA PARA: {recurso_destino}\n")
+    log_callback(f"Ordem Destino: {ordem_destino} | Total de Itens: {len(itens)}\n")
+    log_callback(f"Data e Hora: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}\n")
+    log_callback(f"=======================================================\n\n")
+
+    pythoncom.CoInitialize()
+    try:
+        sessao = _conectar_sap()
+        _abrir_migo(sessao, "Z61")
+
+        for idx, item in enumerate(itens):
+            _preencher_item_migo(
+                sessao=sessao,
+                item=item,
+                ordem_contabil=ordem_destino,
+                movimento="Z61",
+                indice=idx,
+                total_itens=len(itens),
+                log_callback=log_callback
+            )
+            if idx + 1 < len(itens):
+                _avancar_proximo_item(sessao)
+
+        doc_z61 = _verificar_e_gravar(sessao, "Z61", log_callback)
+
+        caminho_hist = os.path.join(_pasta_assistente(), "Historico_Transferencias_SAP.csv")
+        campos = [
+            "Data Hora", "Tipo Movimento", "Recurso Origem", "Recurso Destino",
+            "Ordem Destino", "Doc SAP Z62", "Doc SAP Z61", "Total Itens", "Detalhes"
+        ]
+        detalhes_str = " | ".join(f"{it['Material']} (Qtd: {it['Quantidade']})" for it in itens)
+        registro = {
+            "Data Hora": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "Tipo Movimento": "RECUPERACAO_SAIDA_Z61",
+            "Recurso Origem": "RECUPERACAO",
+            "Recurso Destino": recurso_destino,
+            "Ordem Destino": ordem_destino,
+            "Doc SAP Z62": "RECUPERACAO_ANTERIOR",
+            "Doc SAP Z61": doc_z61,
+            "Total Itens": len(itens),
+            "Detalhes": detalhes_str,
+        }
+
+        try:
+            existe = os.path.isfile(caminho_hist) and os.path.getsize(caminho_hist) > 0
+            with open(caminho_hist, "a", newline="", encoding="utf-8-sig") as f_csv:
+                writer = csv.DictWriter(f_csv, fieldnames=campos, delimiter=";")
+                if not existe:
+                    writer.writeheader()
+                writer.writerow(registro)
+        except Exception:
+            pass
+
+        log_callback(
+            f"\n=======================================================\n"
+            f"🎉 SAÍDA Z61 DE RECUPERAÇÃO CONCLUÍDA COM SUCESSO!\n"
+            f"Destino: {recurso_destino} | Ordem: {ordem_destino}\n"
+            f"Documento Z61 Gerado: {doc_z61}\n"
+            f"=======================================================\n"
+        )
+        return {"status": "sucesso", "doc_z61": doc_z61, "ordem_destino": ordem_destino}
+
+    finally:
+        pythoncom.CoUninitialize()
+
+
 def executar(recurso_antigo, log_callback, serial_callback=None, progresso_callback=None, **kwargs):
     """Ponto de entrada compatível com a interface gráfica."""
     recurso_novo = kwargs.get("recurso_novo") or kwargs.get("equipe_destino") or ""
+    ordem_destino_manual = kwargs.get("ordem_destino_manual") or kwargs.get("ordem_destino") or None
     return executar_mudanca_recurso(
         recurso_antigo=recurso_antigo,
         recurso_novo=recurso_novo,
         log_callback=log_callback,
         serial_callback=serial_callback,
-        progresso_callback=progresso_callback
+        progresso_callback=progresso_callback,
+        ordem_destino_manual=ordem_destino_manual
     )

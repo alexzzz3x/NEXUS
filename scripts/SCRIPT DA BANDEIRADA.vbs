@@ -66,14 +66,18 @@ WScript.Sleep 500
 ' =========================================================================
 ' CAPTURA DA ORDEM: Suporta lista de OSME (Grade) E Ordem Unica (Detalhe)
 ' =========================================================================
-Dim ordemBandeirada
+Dim ordemBandeirada, vencBandeirada
 ordemBandeirada = ""
+vencBandeirada = ""
 
 ' CASO 1: Grade ALV presente (lista de OSME com multiplas ordens)
 Dim gridBandeirada
 Set gridBandeirada = Nothing
 On Error Resume Next
 Set gridBandeirada = session.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
+If gridBandeirada Is Nothing Then
+    Set gridBandeirada = session.findById("wnd[0]/usr/cntlGRID/shellcont/shell")
+End If
 On Error GoTo 0
 
 If Not gridBandeirada Is Nothing Then
@@ -91,15 +95,27 @@ If Not gridBandeirada Is Nothing Then
 
     ' Reobtem a referencia do grid para evitar ponteiro invalido apos ordenacao
     Set gridBandeirada = session.findById("wnd[0]/usr/cntlGRID1/shellcont/shell")
+    If gridBandeirada Is Nothing Then
+        Set gridBandeirada = session.findById("wnd[0]/usr/cntlGRID/shellcont/shell")
+    End If
     ordemBandeirada = Trim(gridBandeirada.GetCellValue(0, "AUFNR"))
     If Err.Number <> 0 Or ordemBandeirada = "" Then
         Err.Clear
         ordemBandeirada = Trim(gridBandeirada.GetCellValue(0, "ORDERID"))
     End If
+    vencBandeirada = Trim(gridBandeirada.GetCellValue(0, "GLTRP"))
+    If Err.Number <> 0 Or vencBandeirada = "" Then
+        Err.Clear
+        vencBandeirada = Trim(gridBandeirada.GetCellValue(0, "GSTRP"))
+    End If
     On Error GoTo 0
 
     If ordemBandeirada <> "" Then
-        WScript.Echo "Ordem encontrada na lista (grade): " & ordemBandeirada
+        If vencBandeirada <> "" Then
+            WScript.Echo "Ordem encontrada na lista (grade): " & ordemBandeirada & " | Vigência: " & vencBandeirada
+        Else
+            WScript.Echo "Ordem encontrada na lista (grade): " & ordemBandeirada
+        End If
     End If
 
     ' Sai da grade
@@ -144,8 +160,38 @@ If Trim(ordemBandeirada) = "" Then
         ordemBandeirada = Trim(txtOrdemDetalhe.text)
         On Error GoTo 0
 
+        ' Busca o campo de data de vigência / GLTRP
+        On Error Resume Next
+        Dim txtGLTRP
+        Set txtGLTRP = session.findById("wnd[0]/usr/subSUB_ALL:SAPLCOIH:3001/ssubSUB_LEVEL:SAPLCOIH:1100/tabsTS_1100/tabpIHKZ/ssubSUB_AUFTRAG:SAPLCOIH:1120/subTERM:SAPLCOIH:7300/ctxtCAUFVD-GLTRP")
+        If txtGLTRP Is Nothing Then
+            Set txtGLTRP = session.findById("wnd[0]/usr/subSUB_ALL:SAPLCOIH:0101/subSUB_HEADER:SAPLCOIH:0105/ctxtCAUFVD-GLTRP")
+        End If
+        If txtGLTRP Is Nothing Then
+            Set txtGLTRP = session.findById("wnd[0]/usr/ctxtCAUFVD-GLTRP")
+        End If
+        If txtGLTRP Is Nothing Then
+            For Each childObj In session.findById("wnd[0]/usr").Children
+                If InStr(childObj.Id, "CAUFVD-GLTRP") > 0 And childObj.Type <> "GuiLabel" Then
+                    Set txtGLTRP = childObj
+                    Exit For
+                End If
+            Next
+        End If
+        If Not txtGLTRP Is Nothing Then
+            vencBandeirada = Trim(txtGLTRP.text)
+            If InStr(LCase(vencBandeirada), "fim") > 0 Or InStr(LCase(vencBandeirada), "base") > 0 Then
+                vencBandeirada = ""
+            End If
+        End If
+        On Error GoTo 0
+
         If ordemBandeirada <> "" Then
-            WScript.Echo "Ordem encontrada na tela inicial de detalhe: " & ordemBandeirada
+            If vencBandeirada <> "" Then
+                WScript.Echo "Ordem encontrada na tela inicial de detalhe: " & ordemBandeirada & " | Vigência: " & vencBandeirada
+            Else
+                WScript.Echo "Ordem encontrada na tela inicial de detalhe: " & ordemBandeirada
+            End If
         End If
 
         ' Sai da tela de detalhe da ordem
@@ -172,7 +218,12 @@ If Trim(ordemBandeirada) = "" Then
     WScript.Quit 2
 End If
 
-WScript.Echo "Ordem mais recente encontrada: " & ordemBandeirada & ". Bandeirando..."
+WScript.Echo "BANDEIRADA_INFO:ORDEM=" & ordemBandeirada & "|VENC=" & vencBandeirada
+If vencBandeirada <> "" Then
+    WScript.Echo "Ordem mais recente encontrada: " & ordemBandeirada & " (Vigência: " & vencBandeirada & "). Bandeirando..."
+Else
+    WScript.Echo "Ordem mais recente encontrada: " & ordemBandeirada & ". Bandeirando..."
+End If
 
 ' =========================================================================
 ' 2. Acessa transacao ZUDWM_213 para bandeirar a ordem
@@ -245,4 +296,5 @@ If Trim(msgFinal) <> "" Then
     WScript.Echo "Status SAP: " & msgFinal
 End If
 
+WScript.Echo "BANDEIRADA_CONCLUIDA:ORDEM=" & ordemBandeirada & "|VENC=" & vencBandeirada
 WScript.Echo "Bandeirada concluida com sucesso para ordem: " & ordemBandeirada

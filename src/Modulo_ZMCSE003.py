@@ -24,6 +24,7 @@ EQUIPE_BASE_MAP = {
     "RCL": ["CLAND. CONECTA LESTE"],
     "CSC": ["CONECTA LESTE - CL03"],
     "CDC": ["CONECTA SUL - CL03"],
+    "CVC": ["CONECTA LESTE - CL03"],
 }
 
 INSTRUCOES = (
@@ -40,7 +41,8 @@ INSTRUCOES = (
     "4. BASE (preenchimento automatico no SAP):\n"
     "   RCL -> CLAND. CONECTA LESTE\n"
     "   CSC -> CONECTA LESTE - CL03\n"
-    "   CDC -> CONECTA SUL - CL03\n\n"
+    "   CDC -> CONECTA SUL - CL03\n"
+    "   CVC -> CONECTA LESTE - CL03\n\n"
     "5. CLIQUE EM 'INICIAR AUTOMACAO'.\n\n"
     "ATENCAO:\n"
     "  - Maximo 24 seriais por lote\n"
@@ -269,7 +271,7 @@ def processar_zm02(data_str, equipe, base, recurso,
 
     Parametros:
         data_str           -- data no formato DD/MM/AAAA
-        equipe             -- nome da equipe (RCL, CSC ou CDC)
+        equipe             -- nome da equipe (RCL, CSC, CDC ou CVC)
         base               -- base valida para a equipe
         callback_log       -- funcao(msg) para exibir log na UI
         callback_progresso -- funcao(atual, total) para barra de progresso
@@ -407,7 +409,7 @@ def processar_zm02(data_str, equipe, base, recurso,
 
 
 def resolver_equipe_e_base(recurso):
-    """Retorna tuple (equipe, base) com base no prefixo do recurso (RCL, CSC, CDC)."""
+    """Retorna tuple (equipe, base) com base no prefixo do recurso (RCL, CSC, CDC, CVC)."""
     rec = str(recurso).strip().upper()
     if rec.startswith("RCL"):
         return "RCL", "CLAND. CONECTA LESTE"
@@ -415,6 +417,8 @@ def resolver_equipe_e_base(recurso):
         return "CSC", "CONECTA LESTE - CL03"
     elif rec.startswith("CDC"):
         return "CDC", "CONECTA SUL - CL03"
+    elif rec.startswith("CVC"):
+        return "CVC", "CONECTA LESTE - CL03"
     for eq, bases in EQUIPE_BASE_MAP.items():
         if rec.startswith(eq):
             return eq, bases[0]
@@ -527,7 +531,7 @@ def processar_zm02_varredura(data_inicio_str, data_fim_str,
     for rec in recursos_unicos:
         eq, base = resolver_equipe_e_base(rec)
         if not eq or not base:
-            log(f"[AVISO] Recurso '{rec}' ignorado: prefixo nao reconhecido (deve ser RCL, CSC ou CDC).")
+            log(f"[AVISO] Recurso '{rec}' ignorado: prefixo nao reconhecido (deve ser RCL, CSC, CDC ou CVC).")
             continue
 
         seriais_rec = df_filtrado.loc[df_filtrado["_recurso"] == rec, df_filtrado.columns[0]].dropna().tolist()

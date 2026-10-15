@@ -23,6 +23,199 @@ DESCRICAO = "ZUDWM_237 - recursos por equipe"
 # Para cada ordem com material positivo:
 #   abre ordem → le Fim Base → se vencida → abre seriais → copia
 
+SCRIPT_IW39_VBS = '''
+Dim fso, arquivoSaida
+Set fso = CreateObject("Scripting.FileSystemObject")
+arquivoSaida = "{ARQUIVO_IW39_SAIDA}"
+If fso.FileExists(arquivoSaida) Then fso.DeleteFile arquivoSaida
+
+If Not IsObject(application) Then
+   Set SapGuiAuto  = GetObject("SAPGUI")
+   Set application = SapGuiAuto.GetScriptingEngine
+End If
+If Not IsObject(connection) Then
+   Set connection = application.Children(0)
+End If
+If Not IsObject(session) Then
+   Set session    = connection.Children(0)
+End If
+If IsObject(WScript) Then
+   WScript.ConnectObject session,     "on"
+   WScript.ConnectObject application, "on"
+End If
+
+On Error Resume Next
+session.findById("wnd[0]").maximize
+session.findById("wnd[0]/tbar[0]/btn[12]").press
+session.findById("wnd[0]/tbar[0]/okcd").text = "/nIW39"
+session.findById("wnd[0]").sendVKey 0
+WScript.Sleep 500
+
+session.findById("wnd[0]/usr/cmbDY_PARVW").key = "Z2"
+session.findById("wnd[0]/usr/ctxtDY_PARNR").text = "{EQUIPE}"
+session.findById("wnd[0]/usr/chkDY_OFN").selected = True
+session.findById("wnd[0]/usr/chkDY_IAR").selected = True
+session.findById("wnd[0]/usr/chkDY_MAB").selected = False
+session.findById("wnd[0]/usr/chkDY_HIS").selected = False
+
+session.findById("wnd[0]/tbar[1]/btn[8]").press
+WScript.Sleep 800
+
+Dim maxPop
+maxPop = 0
+Do While session.Children.Count > 1 And maxPop < 8
+    Err.Clear
+    session.findById("wnd[1]/tbar[0]/btn[0]").press
+    If Err.Number <> 0 Then
+        Err.Clear
+        session.findById("wnd[1]").sendVKey 0
+    End If
+    If Err.Number <> 0 Then
+        Err.Clear
+        session.findById("wnd[1]").close
+    End If
+    WScript.Sleep 200
+    maxPop = maxPop + 1
+Loop
+
+Function FindValueControlByPattern(parentObj, patternStr)
+    Set FindValueControlByPattern = Nothing
+    If parentObj Is Nothing Then Exit Function
+    On Error Resume Next
+    Dim idx, c, res
+    For idx = 0 To parentObj.Children.Count - 1
+        Set c = parentObj.Children(CInt(idx))
+        If c.Type <> "GuiLabel" And c.Type <> "GuiTitlebar" And InStr(UCase(c.Id), "/LBL") = 0 Then
+            If InStr(UCase(c.Id), UCase(patternStr)) > 0 Then
+                Set FindValueControlByPattern = c
+                Exit Function
+            End If
+        End If
+        If c.Children.Count > 0 Then
+            Set res = FindValueControlByPattern(c, patternStr)
+            If Not res Is Nothing Then
+                Set FindValueControlByPattern = res
+                Exit Function
+            End If
+        End If
+    Next
+    On Error GoTo 0
+End Function
+
+Function FindFirstGridView(parentObj)
+    Set FindFirstGridView = Nothing
+    If parentObj Is Nothing Then Exit Function
+    On Error Resume Next
+    Dim idx, c, res
+    For idx = 0 To parentObj.Children.Count - 1
+        Set c = parentObj.Children(CInt(idx))
+        If c.Type = "GuiGridView" Or InStr(c.Id, "shellcont/shell") > 0 Then
+            Set FindFirstGridView = c
+            Exit Function
+        ElseIf c.Children.Count > 0 Then
+            Set res = FindFirstGridView(c)
+            If Not res Is Nothing Then
+                Set FindFirstGridView = res
+                Exit Function
+            End If
+        End If
+    Next
+    On Error GoTo 0
+End Function
+
+Dim outF
+Set outF = fso.OpenTextFile(arquivoSaida, 2, True)
+
+Dim ordemIndiv, vencIndiv, stIndiv, stUsrIndiv
+ordemIndiv = ""
+vencIndiv = ""
+stIndiv = ""
+stUsrIndiv = ""
+
+On Error Resume Next
+Dim wTitle, reOrd, mOrd
+wTitle = session.ActiveWindow.Text
+Set reOrd = New RegExp
+reOrd.Pattern = "\\b(1000\\d{8}|\\d{10,12})\\b"
+Set mOrd = reOrd.Execute(wTitle)
+If mOrd.Count > 0 Then
+    ordemIndiv = Trim(mOrd(0).Value)
+End If
+On Error GoTo 0
+
+If ordemIndiv = "" Then
+    On Error Resume Next
+    Dim txtOrd
+    Set txtOrd = FindValueControlByPattern(session.findById("wnd[0]/usr"), "CAUFVD-AUFNR")
+    If Not txtOrd Is Nothing Then
+        If IsNumeric(Trim(txtOrd.text)) And Len(Trim(txtOrd.text)) >= 8 Then
+            ordemIndiv = Trim(txtOrd.text)
+        End If
+    End If
+    On Error GoTo 0
+End If
+
+If ordemIndiv <> "" Then
+    On Error Resume Next
+    Dim txtVenc
+    Set txtVenc = FindValueControlByPattern(session.findById("wnd[0]/usr"), "CAUFVD-GLTRP")
+    If Not txtVenc Is Nothing Then
+        vencIndiv = Trim(txtVenc.text)
+    End If
+    Dim txtSt
+    Set txtSt = session.findById("wnd[0]/usr/subSUB_ALL:SAPLCOIH:3001/ssubSUB_LEVEL:SAPLCOIH:1100/tabsTS_1100/tabpIHKZ/ssubSUB_AUFTRAG:SAPLCOIH:1120/subHEADER:SAPLCOIH:7110/txtCAUFVD-STTXT")
+    If Not txtSt Is Nothing Then
+        stIndiv = Trim(txtSt.text)
+    End If
+    Dim txtUsr
+    Set txtUsr = session.findById("wnd[0]/usr/subSUB_ALL:SAPLCOIH:3001/ssubSUB_LEVEL:SAPLCOIH:1100/tabsTS_1100/tabpIHKZ/ssubSUB_AUFTRAG:SAPLCOIH:1120/subHEADER:SAPLCOIH:7110/txtCAUFVD-ASTTX")
+    If Not txtUsr Is Nothing Then
+        stUsrIndiv = Trim(txtUsr.text)
+    End If
+    On Error GoTo 0
+    outF.WriteLine ordemIndiv & "|" & vencIndiv & "|" & stIndiv & "|" & stUsrIndiv
+    outF.Close
+    session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
+    session.findById("wnd[0]").sendVKey 0
+    WScript.Quit 0
+End If
+
+Dim grid
+Set grid = FindFirstGridView(session.findById("wnd[0]"))
+If Not grid Is Nothing Then
+    Dim totalLinhas, r, cOrd, cVenc, cSt, cStUsr
+    totalLinhas = 0
+    On Error Resume Next
+    totalLinhas = grid.RowCount
+    On Error GoTo 0
+    For r = 0 To totalLinhas - 1
+        cOrd = ""
+        cVenc = ""
+        cSt = ""
+        cStUsr = ""
+        On Error Resume Next
+        cOrd = Trim(grid.GetCellValue(r, "AUFNR"))
+        If cOrd = "" Then cOrd = Trim(grid.GetCellValue(r, "ORDERID"))
+        cVenc = Trim(grid.GetCellValue(r, "GLTRP"))
+        If cVenc = "" Then cVenc = Trim(grid.GetCellValue(r, "GSTRP"))
+        cSt = Trim(grid.GetCellValue(r, "STTXT"))
+        cStUsr = Trim(grid.GetCellValue(r, "ASTTX"))
+        On Error GoTo 0
+        If cOrd <> "" Then
+            outF.WriteLine cOrd & "|" & cVenc & "|" & cSt & "|" & cStUsr
+        End If
+    Next
+    outF.Close
+    session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
+    session.findById("wnd[0]").sendVKey 0
+    WScript.Quit 0
+End If
+
+outF.Close
+session.findById("wnd[0]/tbar[0]/okcd").text = "/n"
+session.findById("wnd[0]").sendVKey 0
+'''
+
 SCRIPT_VBS = '''
 Dim fso, arquivo, arquivoMateriais, arquivoDestino
 Set fso = CreateObject("Scripting.FileSystemObject")
@@ -42,10 +235,18 @@ Function SaldoDisponivelPositivo(valor)
     textoSaldo = Replace(textoSaldo, Chr(160), "")
     textoSaldo = Replace(textoSaldo, " ", "")
 
-    ' SAP pode exibir negativos como -10, 10- ou (10).
-    If Left(textoSaldo, 1) = "-" Then Exit Function
-    If Right(textoSaldo, 1) = "-" Then Exit Function
-    If Left(textoSaldo, 1) = "(" And Right(textoSaldo, 1) = ")" Then Exit Function
+    ' SAP pode exibir negativos como -10, 10- ou (10). Rejeita sumariamente qualquer negativo!
+    If InStr(textoSaldo, "-") > 0 Then Exit Function
+    If InStr(textoSaldo, "(") > 0 Or InStr(textoSaldo, ")") > 0 Then Exit Function
+
+    ' Rejeita saldos zerados
+    If textoSaldo = "0" Or textoSaldo = "0,0" Or textoSaldo = "0,00" Or textoSaldo = "0,000" Then Exit Function
+    If textoSaldo = "0.0" Or textoSaldo = "0.00" Or textoSaldo = "0.000" Then Exit Function
+
+    ' Trata separador de milhar e decimal pt-BR
+    If InStr(textoSaldo, ",") > 0 And InStr(textoSaldo, ".") > 0 Then
+        textoSaldo = Replace(textoSaldo, ".", "")
+    End If
 
     On Error Resume Next
     Err.Clear
@@ -71,6 +272,34 @@ Function LinhaPossuiSaldoPositivo(objGrid, numeroLinha)
     On Error Goto 0
 End Function
 
+Function LinhaEstaEncerradaTecnicamente(objGrid, numeroLinha)
+    LinhaEstaEncerradaTecnicamente = False
+    On Error Resume Next
+    Dim cols, c, colName, valStr
+    Set cols = objGrid.ColumnOrder
+    If Not (cols Is Nothing) Then
+        For c = 0 To cols.Count - 1
+            colName = cols(c)
+            valStr = LCase(Trim(CStr(objGrid.getCellValue(numeroLinha, colName))))
+            If InStr(valStr, "encerrad") > 0 Or InStr(valStr, "teco") > 0 Or InStr(valStr, "enct") > 0 Or InStr(valStr, "fechad") > 0 Then
+                LinhaEstaEncerradaTecnicamente = True
+                Exit Function
+            End If
+        Next
+    End If
+
+    Dim colunasPossiveis, col
+    colunasPossiveis = Array("LAYOUT", "STATUS", "STTXT", "TXT30", "TXT04", "ASTTX", "ZZSTATUS", "STAT", "PHASEN", "TXT04_1", "SYSSTATUS", "USERSTATUS")
+    For Each col In colunasPossiveis
+        valStr = LCase(Trim(CStr(objGrid.getCellValue(numeroLinha, col))))
+        If InStr(valStr, "encerrad") > 0 Or InStr(valStr, "teco") > 0 Or InStr(valStr, "enct") > 0 Or InStr(valStr, "fechad") > 0 Then
+            LinhaEstaEncerradaTecnicamente = True
+            Exit Function
+        End If
+    Next
+    On Error Goto 0
+End Function
+
 Sub RegistrarOrdemDestino(numeroOrdem, dataFim)
     Dim arquivoDestinoObj
     If fso.FileExists(arquivoDestino) Then Exit Sub
@@ -81,6 +310,14 @@ Sub RegistrarOrdemDestino(numeroOrdem, dataFim)
     On Error Goto 0
     WScript.Echo "ORDEM DESTINO ATUAL: " & numeroOrdem & " (Fim Base=" & dataFim & ")"
 End Sub
+
+' Pré-registra a Ordem Destino Vigente (descoberta na IW39)
+Dim ordemDestinoPrevia, fimBaseDestinoPrevia
+ordemDestinoPrevia = "{ORDEM_DESTINO_PREVIA}"
+fimBaseDestinoPrevia = "{FIM_BASE_DESTINO_PREVIA}"
+If ordemDestinoPrevia <> "" Then
+    RegistrarOrdemDestino ordemDestinoPrevia, fimBaseDestinoPrevia
+End If
 
 If Not IsObject(application) Then
    Set SapGuiAuto  = GetObject("SAPGUI")
@@ -157,6 +394,72 @@ End If
 campoEquipe.text = "{EQUIPE}"
 campoEquipe.caretPosition = Len("{EQUIPE}")
 session.findById("wnd[0]").sendVKey 0
+
+Dim ordemOrigemAlvo
+ordemOrigemAlvo = "{ORDEM_ORIGEM_ALVO}"
+If ordemOrigemAlvo <> "" Then
+    Dim camposPossiveis, idCampo, campoOrdemObj, preencheuOrdem
+    preencheuOrdem = False
+    camposPossiveis = Array( _
+        "wnd[0]/usr/ctxtS_AUFNR-LOW", _
+        "wnd[0]/usr/ctxtP_AUFNR", _
+        "wnd[0]/usr/txtP_AUFNR", _
+        "wnd[0]/usr/ctxtS_ORDEM-LOW", _
+        "wnd[0]/usr/ctxtP_ORDEM", _
+        "wnd[0]/usr/txtP_ORDEM", _
+        "wnd[0]/usr/ctxtS_ORDR-LOW", _
+        "wnd[0]/usr/ctxtS_AUFNR", _
+        "wnd[0]/usr/txtS_AUFNR-LOW", _
+        "wnd[0]/usr/ctxtAUFNR" _
+    )
+    For Each idCampo In camposPossiveis
+        On Error Resume Next
+        Err.Clear
+        Set campoOrdemObj = session.findById(idCampo)
+        If Err.Number = 0 And Not (campoOrdemObj Is Nothing) Then
+            campoOrdemObj.text = ordemOrigemAlvo
+            campoOrdemObj.caretPosition = Len(ordemOrigemAlvo)
+            preencheuOrdem = True
+            WScript.Echo "Campo de ordem de origem preenchido via " & idCampo & ": " & ordemOrigemAlvo
+            On Error GoTo 0
+            Exit For
+        End If
+        Err.Clear
+        On Error GoTo 0
+    Next
+
+    If Not preencheuOrdem Then
+        Dim usrObj, idxCtrl, cCtrl
+        On Error Resume Next
+        Set usrObj = session.findById("wnd[0]/usr")
+        If Not (usrObj Is Nothing) Then
+            For idxCtrl = 0 To usrObj.Children.Count - 1
+                Set cCtrl = usrObj.Children(CInt(idxCtrl))
+                If (cCtrl.Type = "GuiCTextField" Or cCtrl.Type = "GuiTextField") And InStr(UCase(cCtrl.Id), "EQUIPE") = 0 Then
+                    If InStr(UCase(cCtrl.Id), "AUFNR") > 0 Or InStr(UCase(cCtrl.Id), "ORD") > 0 Then
+                        cCtrl.text = ordemOrigemAlvo
+                        cCtrl.caretPosition = Len(ordemOrigemAlvo)
+                        preencheuOrdem = True
+                        WScript.Echo "Campo de ordem de origem encontrado dinamicamente (" & cCtrl.Id & "): " & ordemOrigemAlvo
+                        Exit For
+                    End If
+                End If
+            Next
+        End If
+        On Error GoTo 0
+    End If
+
+    On Error Resume Next
+    Dim campoHigh
+    Set campoHigh = session.findById("wnd[0]/usr/ctxtS_AUFNR-HIGH")
+    If Not (campoHigh Is Nothing) Then campoHigh.text = ""
+    Set campoHigh = session.findById("wnd[0]/usr/ctxtS_ORDEM-HIGH")
+    If Not (campoHigh Is Nothing) Then campoHigh.text = ""
+    On Error GoTo 0
+
+    session.findById("wnd[0]").sendVKey 0
+End If
+
 session.findById("wnd[0]/tbar[1]/btn[8]").press
 WScript.Sleep 2000
 
@@ -168,8 +471,7 @@ grid.selectColumn "AUFNR"
 grid.pressToolbarButton "&SORT_DSC"
 WScript.Sleep 500
 
-' A ordenacao pode recriar o controle ALV e invalidar a referencia COM.
-' Readquirir a grade evita "Falha catastrofica" na primeira leitura.
+' Readquirir a grade evita erro na primeira leitura
 Set grid = Nothing
 Dim tentativaGrid
 For tentativaGrid = 1 To 40
@@ -192,133 +494,95 @@ WScript.Echo "Linhas encontradas: " & (rowCount + 1)
 Dim todayDate
 todayDate = Date()
 
-Dim ordemAtual, ordemVencida, fimBaseText, fimBaseDate, abriuOrdem
-ordemAtual = ""
-ordemVencida = False
+Dim ordemAtual, ordemVencida, ordemEhDestino, fimBaseText
+ordemAtual = ordemOrigemAlvo
+If ordemAtual <> "" And ordemAtual <> ordemDestinoPrevia Then
+    ordemVencida = True
+    ordemEhDestino = False
+    WScript.Echo "Ordem inicial definida como origem: " & ordemAtual
+Else
+    ordemVencida = False
+    ordemEhDestino = False
+End If
 fimBaseText = ""
 
 For i = 0 to rowCount
     On Error Resume Next
-    ordem_val = grid.getCellValue(i, "AUFNR")
+    ordem_val = Trim(CStr(grid.getCellValue(i, "AUFNR")))
     If Err.Number <> 0 Then ordem_val = ""
+    If ordem_val = "" Then
+        ordem_val = Trim(CStr(grid.getCellValue(i, "ORDEM")))
+        If Err.Number <> 0 Then ordem_val = ""
+    End If
     Err.Clear
-    qtd_disp = grid.getCellValue(i, "QTD_DISP")
+    qtd_disp = Trim(CStr(grid.getCellValue(i, "QTD_DISP")))
     If Err.Number <> 0 Then qtd_disp = ""
     On Error Goto 0
 
-    If qtd_disp <> "" And Not SaldoDisponivelPositivo(qtd_disp) Then
-        WScript.Echo "  Linha " & (i + 1) & " ignorada: QTD_DISP=" & qtd_disp
-    End If
-
-    If ordem_val <> "" Then
+    If ordem_val <> "" And ordem_val <> ordemAtual Then
         ' === NOVA ORDEM ===
-        WScript.Echo ">>> Ordem " & ordem_val & " (" & (i + 1) & "/" & (rowCount + 1) & ")"
         ordemAtual = ordem_val
-        ordemVencida = False
+        fimBaseText = ""
+        WScript.Echo ">>> Ordem " & ordemAtual & " (linha " & (i + 1) & "/" & (rowCount + 1) & ")"
 
-        If Not SaldoDisponivelPositivo(qtd_disp) Then
-            WScript.Echo "  IGNORADA: linha com saldo disponivel zero ou negativo"
+        ' Verifica se esta ordem é a nova ordem vigente de destino identificada na IW39
+        If ordemDestinoPrevia <> "" And ordemAtual = ordemDestinoPrevia Then
+            ordemEhDestino = True
+            ordemVencida = False
+            WScript.Echo "  ORDEM DESTINO VIGENTE ATIVA: materiais serao mantidos intactos."
         Else
+            ordemEhDestino = False
+            ordemVencida = True
+            WScript.Echo "  ORDEM DE ORIGEM: processando materiais validos com saldo positivo."
+        End If
 
-        ' Tentar ler Fim Base da grid
+        ' Tenta ler data de fim-base da grade se disponível
         On Error Resume Next
-        fimBaseText = grid.getCellValue(i, "GLTRP")
+        fimBaseText = Trim(CStr(grid.getCellValue(i, "GLTRP")))
         If Err.Number <> 0 Then fimBaseText = ""
         On Error Goto 0
+    End If
 
-        ' Se nao tem na grid, abrir ordem (so UMA vez)
-        abriuOrdem = False
-        If fimBaseText = "" Then
-            If LinhaPossuiSaldoPositivo(grid, i) Then
-                grid.currentCellColumn = "AUFNR"
-                grid.currentCellRow = i
-                grid.selectedRows = CStr(i)
-                grid.clickCurrentCell
-                WScript.Sleep 1500
-                abriuOrdem = True
-
-                On Error Resume Next
-                fimBaseText = session.findById("wnd[0]/usr/subSUB_ALL:SAPLCOIH:3001/ssubSUB_LEVEL:SAPLCOIH:1100/tabsTS_1100/tabpIHKZ/ssubSUB_AUFTRAG:SAPLCOIH:1120/subTERM:SAPLCOIH:7300/ctxtCAUFVD-GLTRP").text
-                If Err.Number <> 0 Then fimBaseText = ""
-                On Error Goto 0
-
-                session.findById("wnd[0]/tbar[0]/btn[3]").press
-                WScript.Sleep 800
-            Else
-                WScript.Echo "  BLOQUEADA antes de abrir ordem: saldo nao positivo"
-            End If
-        End If
-
-        ' Decidir se venceu (parsing manual DD.MM.YYYY)
-        If fimBaseText <> "" And InStr(fimBaseText, ".") > 0 Then
-            Dim d, m, y
-            On Error Resume Next
-            d = CInt(Mid(fimBaseText, 1, 2))
-            m = CInt(Mid(fimBaseText, 4, 2))
-            y = CInt(Mid(fimBaseText, 7, 4))
-            If Err.Number = 0 And y >= 1900 Then
-                fimBaseDate = DateSerial(y, m, d)
-                If fimBaseDate < todayDate Then
-                    ordemVencida = True
-                End If
-                If ordemVencida Then
-                    WScript.Echo "  VENCIDA (Fim Base=" & fimBaseText & ")"
-                Else
-                    RegistrarOrdemDestino ordemAtual, fimBaseText
-                End If
-            Else
-                WScript.Echo "  ERRO parsing data: " & fimBaseText
-            End If
-            On Error Goto 0
-        ElseIf fimBaseText <> "" Then
-            ' Tenta CDate como fallback
-            On Error Resume Next
-            fimBaseDate = CDate(fimBaseText)
-            If Err.Number = 0 And fimBaseDate < todayDate Then
-                ordemVencida = True
-            End If
-            On Error Goto 0
-            If ordemVencida Then
-                WScript.Echo "  VENCIDA (Fim Base=" & fimBaseText & ")"
-            Else
-                RegistrarOrdemDestino ordemAtual, fimBaseText
-            End If
+    ' Se pertencer à ordem de destino vigente: nunca altera nem coleta
+    If ordemEhDestino Then
+        ' Linha da nova ordem de destino: mantém intacta
+    ElseIf ordemVencida Then
+        ' Linha da ordem de origem anterior
+        ' PULANDO LINHAS NEGATIVAS OU ZERADAS:
+        ' Se não tiver saldo estritamente positivo, pula sumariamente sem clicar!
+        If Not SaldoDisponivelPositivo(qtd_disp) Then
+            WScript.Echo "    Linha " & (i + 1) & " IGNORADA: quantidade negativa ou zero (" & qtd_disp & ") mantida na ordem anterior."
         Else
-            WScript.Echo "  ERRO: nao foi possivel ler Fim Base"
-        End If
-
-        ' Processar linha atual da ordem (QTD_DISP)
-        If ordemVencida And LinhaPossuiSaldoPositivo(grid, i) Then
             Dim material, descricaoMaterial, unidadeMedida
             material = ""
             descricaoMaterial = ""
             unidadeMedida = ""
             On Error Resume Next
             Err.Clear
-            material = grid.getCellValue(i, "MATNR")
+            material = Trim(CStr(grid.getCellValue(i, "MATNR")))
             Err.Clear
-            descricaoMaterial = grid.getCellValue(i, "MAKTX")
+            descricaoMaterial = Trim(CStr(grid.getCellValue(i, "MAKTX")))
             Err.Clear
-            unidadeMedida = grid.getCellValue(i, "MEINS")
+            unidadeMedida = Trim(CStr(grid.getCellValue(i, "MEINS")))
             On Error Goto 0
 
-            WScript.Echo "    Material QTD=" & qtd_disp
+            WScript.Echo "    Coletando linha " & (i + 1) & " - Material=" & material & " QTD=" & qtd_disp & " (" & ordemAtual & ")"
             grid.currentCellRow = i
             grid.currentCellColumn = "QTD_DISP"
             grid.selectedRows = CStr(i)
             grid.clickCurrentCell
             WScript.Sleep 1500
 
-            Dim serialGrid, sRowCount, s, sernr, serialList, tipoMaterial, fm
+            Dim serialGrid, sRowCount, s, sernr, serialList, tipoMaterial, fm, f
             serialList = ""
             On Error Resume Next
             Err.Clear
             Set serialGrid = session.findById("wnd[1]/usr/cntlGRID1/shellcont/shell")
-            If Err.Number = 0 Then
+            If Err.Number = 0 And Not (serialGrid Is Nothing) Then
                 sRowCount = serialGrid.RowCount - 1
                 For s = 0 to sRowCount
                     Err.Clear
-                    sernr = serialGrid.getCellValue(s, "SERNR")
+                    sernr = Trim(CStr(serialGrid.getCellValue(s, "SERNR")))
                     If Err.Number = 0 And sernr <> "" Then
                         If serialList <> "" Then serialList = serialList & ", "
                         serialList = serialList & sernr
@@ -329,10 +593,10 @@ For i = 0 to rowCount
                 Next
                 session.findById("wnd[1]").close
                 On Error Goto 0
-                WScript.Echo "    SERIAIS (" & ordemAtual & "): " & serialList
+                WScript.Echo "      SERIAIS: " & serialList
             Else
                 On Error Goto 0
-                WScript.Echo "    Sem seriais (popup nao abriu)"
+                WScript.Echo "      Sem seriais (item nao serializado ou popup nao abriu)"
             End If
 
             tipoMaterial = "NAO_SERIALIZADO"
@@ -345,74 +609,8 @@ For i = 0 to rowCount
             fm.WriteLine ordemAtual & "|" & fimBaseText & "|" & material & "|" & descricaoMaterial & "|" & unidadeMedida & "|" & qtd_disp & "|" & tipoMaterial & "|" & serialList
             fm.Close
             On Error Goto 0
-            WScript.Sleep 500
+            WScript.Sleep 400
         End If
-
-        End If
-
-    ElseIf ordemAtual <> "" And ordemVencida Then
-        ' === SUB-LINHA da ordem atual (AUFNR em branco) ===
-        ' So processa se tiver quantidade positiva
-        If LinhaPossuiSaldoPositivo(grid, i) Then
-            Dim material2, descricaoMaterial2, unidadeMedida2
-            material2 = ""
-            descricaoMaterial2 = ""
-            unidadeMedida2 = ""
-            On Error Resume Next
-            Err.Clear
-            material2 = grid.getCellValue(i, "MATNR")
-            Err.Clear
-            descricaoMaterial2 = grid.getCellValue(i, "MAKTX")
-            Err.Clear
-            unidadeMedida2 = grid.getCellValue(i, "MEINS")
-            On Error Goto 0
-
-            WScript.Echo "  + Material QTD=" & qtd_disp & " (ordem " & ordemAtual & ")"
-            grid.currentCellRow = i
-            grid.currentCellColumn = "QTD_DISP"
-            grid.selectedRows = CStr(i)
-            grid.clickCurrentCell
-            WScript.Sleep 1500
-
-            Dim serialGrid2, sRowCount2, s2, sernr2, serialList2, tipoMaterial2, fm2
-            serialList2 = ""
-            On Error Resume Next
-            Err.Clear
-            Set serialGrid2 = session.findById("wnd[1]/usr/cntlGRID1/shellcont/shell")
-            If Err.Number = 0 Then
-                sRowCount2 = serialGrid2.RowCount - 1
-                For s2 = 0 to sRowCount2
-                    Err.Clear
-                    sernr2 = serialGrid2.getCellValue(s2, "SERNR")
-                    If Err.Number = 0 And sernr2 <> "" Then
-                        If serialList2 <> "" Then serialList2 = serialList2 & ", "
-                        serialList2 = serialList2 & sernr2
-                        Set f = fso.OpenTextFile(arquivo, 8, True)
-                        f.WriteLine ordemAtual & "|" & fimBaseText & "|" & sernr2
-                        f.Close
-                    End If
-                Next
-                session.findById("wnd[1]").close
-                On Error Goto 0
-                WScript.Echo "    SERIAIS (" & ordemAtual & "): " & serialList2
-            Else
-                On Error Goto 0
-                WScript.Echo "    Sem seriais (popup nao abriu)"
-            End If
-
-            tipoMaterial2 = "NAO_SERIALIZADO"
-            If serialList2 <> "" Then tipoMaterial2 = "SERIALIZADO"
-            descricaoMaterial2 = Replace(descricaoMaterial2, "|", "/")
-            descricaoMaterial2 = Replace(descricaoMaterial2, vbCr, " ")
-            descricaoMaterial2 = Replace(descricaoMaterial2, vbLf, " ")
-            On Error Resume Next
-            Set fm2 = fso.OpenTextFile(arquivoMateriais, 8, True)
-            fm2.WriteLine ordemAtual & "|" & fimBaseText & "|" & material2 & "|" & descricaoMaterial2 & "|" & unidadeMedida2 & "|" & qtd_disp & "|" & tipoMaterial2 & "|" & serialList2
-            fm2.Close
-            On Error Goto 0
-            WScript.Sleep 500
-        End If
-
     End If
 Next
 '''
@@ -705,12 +903,18 @@ def _consultar_seriais_zmmcse004(equipe, seriais, log_callback):
                 "Erro": "" if dados else "Serial nao localizado no grid",
             }
             if dados:
+                sts_sis = _normalizar_status(registro["STS Sistema"])
+                sts_usr = _normalizar_status(registro["STS Usuario"])
+                st_mov = _normalizar_status(registro["ST Mov Mercadoria"])
+                rec = _normalizar_status(registro["Recurso"])
+                eq_norm = _normalizar_status(equipe)
+
                 registro["Apto"] = (
                     "SIM"
-                    if _normalizar_status(registro["Recurso"]) == _normalizar_status(equipe)
-                    and _normalizar_status(registro["STS Sistema"]) == "LIDI"
-                    and _normalizar_status(registro["STS Usuario"]) == "DISP"
-                    and _normalizar_status(registro["ST Mov Mercadoria"]) == "DISPONIVEL"
+                    if (rec == eq_norm or not rec)
+                    and "LIDI" in sts_sis
+                    and "DISP" in sts_usr
+                    and ("DISP" in st_mov or not st_mov or "DISPONIVEL" in st_mov)
                     else "NAO"
                 )
             registros.append(registro)
@@ -768,11 +972,204 @@ def _formatar_quantidade_sap(valor):
     return texto.replace(",", "_").replace(".", ",").replace("_", ".")
 
 
+def _ler_linhas_seguras(caminho):
+    """Lê linhas de arquivo gerado pelo VBScript com fallback de encoding (utf-8, cp1252, latin-1)."""
+    if not caminho or not os.path.exists(caminho):
+        return []
+    for enc in ("utf-8", "cp1252", "latin-1"):
+        try:
+            with open(caminho, "r", encoding=enc) as f:
+                return f.readlines()
+        except UnicodeDecodeError:
+            continue
+    with open(caminho, "r", encoding="utf-8", errors="replace") as f:
+        return f.readlines()
+
+
+def _consultar_ordens_iw39(equipe, log_callback=None):
+    """
+    Consulta a transação IW39 no SAP para o parceiro Z2={equipe}.
+    Identifica:
+      - Ordem VIGENTE no período (data fim >= hoje, com maior data de vencimento e não encerrada).
+      - Ordens VENCIDAS (data fim < hoje ou encerradas).
+    Retorna: (ordem_vigente, fim_base_vigente, ordens_vencidas_dict)
+    """
+    identificador = uuid.uuid4().hex
+    saida_iw39 = os.path.join(tempfile.gettempdir(), f"IW39_ORDENS_{identificador}.txt")
+    vbs_iw39_path = os.path.join(tempfile.gettempdir(), f"IW39_CONSULTA_{identificador}.vbs")
+
+    vbs_content = (
+        SCRIPT_IW39_VBS
+        .replace("{EQUIPE}", equipe)
+        .replace("{ARQUIVO_IW39_SAIDA}", saida_iw39)
+    )
+    with open(vbs_iw39_path, "w", encoding="latin-1", errors="replace") as f:
+        f.write(vbs_content)
+
+    try:
+        result = subprocess.run(
+            ["cscript.exe", "//Nologo", vbs_iw39_path],
+            capture_output=True, text=True, timeout=120,
+            creationflags=subprocess.CREATE_NO_WINDOW
+        )
+        if result.stdout and log_callback:
+            for l in result.stdout.splitlines():
+                if "ERRO" in l.upper() or "AVISO" in l.upper():
+                    log_callback(f"{l}\n")
+        if result.returncode != 0 and log_callback:
+            log_callback(f"Aviso IW39 (cscript code {result.returncode})\n")
+
+        linhas_saida = _ler_linhas_seguras(saida_iw39)
+        hoje = datetime.now().date()
+        candidatas_vigentes = []
+        ordens_vencidas = {}
+
+        for linha in linhas_saida:
+            linha = linha.strip()
+            if not linha:
+                continue
+            partes = [p.strip() for p in linha.split("|")]
+            if len(partes) < 2:
+                continue
+            ordem = partes[0]
+            venc_str = partes[1]
+            st_sis = partes[2].upper() if len(partes) > 2 else ""
+            st_usr = partes[3].upper() if len(partes) > 3 else ""
+
+            if not ordem:
+                continue
+
+            dt_venc = None
+            if venc_str and "." in venc_str:
+                try:
+                    dt_venc = datetime.strptime(venc_str, "%d.%m.%Y").date()
+                except Exception:
+                    dt_venc = None
+
+            encerrada = any(x in st_sis for x in ["TECO", "ENCT", "FECH", "ENCERR"])
+
+            if dt_venc and dt_venc >= hoje and not encerrada:
+                candidatas_vigentes.append({
+                    "ordem": ordem,
+                    "venc": venc_str,
+                    "dt_venc": dt_venc,
+                    "st_sis": st_sis,
+                    "st_usr": st_usr
+                })
+            else:
+                ordens_vencidas[ordem] = {
+                    "venc": venc_str,
+                    "dt_venc": dt_venc,
+                    "encerrada": encerrada
+                }
+
+        ordem_vigente = ""
+        fim_vigente = ""
+        if candidatas_vigentes:
+            candidatas_vigentes.sort(key=lambda x: x["dt_venc"], reverse=True)
+            ordem_vigente = candidatas_vigentes[0]["ordem"]
+            fim_vigente = candidatas_vigentes[0]["venc"]
+
+        return ordem_vigente, fim_vigente, ordens_vencidas
+    except Exception as e:
+        if log_callback:
+            log_callback(f"Erro ao consultar IW39: {e}\n")
+        return "", "", {}
+    finally:
+        for p in (saida_iw39, vbs_iw39_path):
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+
+def _buscar_ordem_destino_fallback(equipe):
+    """Busca a OSME ativa na aba CADASTRO da planilha oficial CONTROLE_SERIAIS se não encontrada na ZUDWM_237."""
+    equipe_norm = equipe.strip().upper()
+    caminhos = [
+        r"X:\obras\Elpa - Almox CR Mauá\CONTROLES\CONTROLE_SERIAIS.vBeta.xlsm",
+        r"\\terra\conecta\arquivos\obras\Elpa - Almox CR Mauá\CONTROLES\CONTROLE_SERIAIS.vBeta.xlsm",
+        os.path.join(os.path.expanduser("~"), "Desktop", "CONTROLE_SERIAIS.vBeta.xlsm"),
+        os.path.join(os.path.expanduser("~"), "Documents", "CONTROLE_SERIAIS.vBeta.xlsm"),
+    ]
+    for c in caminhos:
+        if os.path.exists(c):
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(c, read_only=True, data_only=True)
+                if "CADASTRO" in wb.sheetnames:
+                    ws = wb["CADASTRO"]
+                    # Coluna E (índice 4): Equipes, Coluna H (índice 7): Ordem, Coluna I (índice 8): Vencimento
+                    for row in ws.iter_rows(values_only=True):
+                        if len(row) > 7:
+                            eq = str(row[4] or "").strip().upper()
+                            if eq == equipe_norm:
+                                ordem = str(row[7] or "").strip()
+                                venc = str(row[8] or "").strip() if len(row) > 8 else ""
+                                wb.close()
+                                if ordem and ordem.upper() != "NONE" and ordem != "—":
+                                    return ordem, venc
+                wb.close()
+            except Exception:
+                pass
+    return "", ""
+
+
 def executar(equipe, log_callback, serial_callback=None):
     equipe = equipe.strip().upper()
     if not re.fullmatch(r"[A-Z0-9]{1,12}", equipe):
         log_callback("ERRO: codigo de equipe invalido. Use somente letras e numeros.\n")
         return
+
+    # ETAPA 0: Consulta prévia e obrigatória na IW39 para identificar a nova OSME vigente
+    log_callback(f"\n🔎 [IW39] Consultando OSME vigente no período para equipe {equipe}...\n")
+    ordem_iw39, venc_iw39, vencidas_iw39 = _consultar_ordens_iw39(equipe, log_callback)
+
+    ordem_destino = ""
+    fim_base_destino = ""
+    ordem_origem_alvo = ""
+
+    if ordem_iw39:
+        ordem_destino = ordem_iw39
+        fim_base_destino = venc_iw39
+        log_callback(
+            f"🎯 [IW39] Nova OSME VIGENTE identificada no período (DESTINO): {ordem_destino} "
+            f"(Vencimento: {fim_base_destino})\n"
+        )
+        if vencidas_iw39:
+            venc_txt = ", ".join([f"{o} (venc: {d.get('venc', '-')})" for o, d in vencidas_iw39.items()])
+            log_callback(f"⏳ [IW39] Ordens anteriores/vencidas detectadas: {venc_txt}\n")
+            ordens_venc_ordenadas = sorted(
+                vencidas_iw39.items(),
+                key=lambda item: item[1].get("dt_venc") or datetime.min.date(),
+                reverse=True
+            )
+            ordem_origem_alvo = ordens_venc_ordenadas[0][0]
+            venc_origem = ordens_venc_ordenadas[0][1].get("venc", "-")
+            log_callback(
+                f"🎯 [IW39] OSME anterior de ORIGEM selecionada para abrir na ZUDWM_237: {ordem_origem_alvo} "
+                f"(Vencimento: {venc_origem})\n"
+            )
+    else:
+        log_callback(
+            f"⚠️ [IW39] Nenhuma ordem com vencimento futuro localizada na IW39 para {equipe}.\n"
+        )
+        ordem_fb, venc_fb = _buscar_ordem_destino_fallback(equipe)
+        if ordem_fb and ordem_fb not in vencidas_iw39:
+            ordem_destino = ordem_fb
+            fim_base_destino = venc_fb
+            log_callback(
+                f"Ordem destino ativa identificada na planilha CADASTRO: {ordem_destino} "
+                f"(Vencimento={fim_base_destino})\n"
+            )
+        else:
+            msg_erro = (
+                f"❌ ERRO CRÍTICO: Não foi possível identificar uma nova OSME vigente para {equipe}.\n"
+                f"A ordem encontrada seria idêntica à ordem anterior ou não há ordem vigente futura no SAP IW39.\n"
+                f"Transferência cancelada por segurança para evitar movimentação na mesma OSME.\n"
+            )
+            log_callback(msg_erro)
+            raise RuntimeError(msg_erro)
 
     identificador = uuid.uuid4().hex
     serials_path = os.path.join(tempfile.gettempdir(), f"SERIAIS_COLETADOS_{identificador}.txt")
@@ -785,11 +1182,14 @@ def executar(equipe, log_callback, serial_callback=None):
         .replace("{ARQUIVO_SAIDA}", serials_path)
         .replace("{ARQUIVO_MATERIAIS}", materiais_path)
         .replace("{ARQUIVO_DESTINO}", destino_path)
+        .replace("{ORDEM_DESTINO_PREVIA}", ordem_destino)
+        .replace("{FIM_BASE_DESTINO_PREVIA}", fim_base_destino)
+        .replace("{ORDEM_ORIGEM_ALVO}", ordem_origem_alvo)
     )
-    with open(vbs_path, "w", encoding="utf-8") as f:
+    with open(vbs_path, "w", encoding="latin-1", errors="replace") as f:
         f.write(vbs_content)
-    log_callback("Versao: filtro por linha com dupla validacao de saldo (v3)\n")
-    log_callback(f"Executando Transferencia de OSMES para equipe: {equipe}\n")
+    log_callback("Versao: filtro por linha com OSME vigente IW39 e rejeicao estrita de saldo negativo (v4)\n")
+    log_callback(f"Executando varredura ZUDWM_237 para equipe: {equipe}\n")
     try:
         result = subprocess.run(
             ["cscript.exe", "//Nologo", vbs_path],
@@ -806,41 +1206,38 @@ def executar(equipe, log_callback, serial_callback=None):
                 f"consulta ZUDWM_237 interrompida pelo VBScript "
                 f"(codigo {result.returncode}): {detalhe}"
             )
-        log_callback("Concluido!\n")
+        log_callback("Varredura ZUDWM_237 concluida!\n")
 
-        ordem_destino = ""
-        fim_base_destino = ""
+        # Confere ordem destino
         if os.path.exists(destino_path):
-            with open(destino_path, "r", encoding="utf-8") as f:
-                partes_destino = [parte.strip() for parte in f.readline().split("|", 1)]
-            if len(partes_destino) == 2:
-                ordem_destino, fim_base_destino = partes_destino
-                log_callback(
-                    f"Ordem destino atual: {ordem_destino} (Fim Base={fim_base_destino})\n"
-                )
-        if not ordem_destino:
-            log_callback("AVISO: nenhuma ordem nao vencida foi identificada.\n")
+            linhas_destino = _ler_linhas_seguras(destino_path)
+            if linhas_destino:
+                partes_destino = [parte.strip() for parte in linhas_destino[0].split("|", 1)]
+                if len(partes_destino) == 2 and partes_destino[0]:
+                    ordem_destino, fim_base_destino = partes_destino
 
         registros = []
         vistos = set()
         if os.path.exists(serials_path):
-            with open(serials_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    partes = [parte.strip() for parte in line.strip().split("|", 2)]
-                    if len(partes) != 3 or not partes[0] or not partes[2]:
-                        continue
-                    ordem, fim_base, serial = partes
-                    chave = (ordem, fim_base, serial)
-                    if chave in vistos:
-                        continue
-                    vistos.add(chave)
-                    registros.append({
-                        "Equipe": equipe,
-                        "Ordem Destino": ordem_destino,
-                        "Ordem Origem": ordem,
-                        "Fim Base": fim_base,
-                        "Serial": serial,
-                    })
+            for line in _ler_linhas_seguras(serials_path):
+                partes = [parte.strip() for parte in line.strip().split("|", 2)]
+                if len(partes) != 3 or not partes[0] or not partes[2]:
+                    continue
+                ordem, fim_base, serial = partes
+                # Não coleta seriais da própria ordem de destino
+                if ordem == ordem_destino:
+                    continue
+                chave = (ordem, fim_base, serial)
+                if chave in vistos:
+                    continue
+                vistos.add(chave)
+                registros.append({
+                    "Equipe": equipe,
+                    "Ordem Destino": ordem_destino,
+                    "Ordem Origem": ordem,
+                    "Fim Base": fim_base,
+                    "Serial": serial,
+                })
 
         if registros:
             log_callback(f"Seriais unicos encontrados: {len(registros)}\n")
@@ -849,35 +1246,43 @@ def executar(equipe, log_callback, serial_callback=None):
                 log_callback(f"Lista CSV salva em: {csv_path}\n")
             except Exception as e:
                 log_callback(f"AVISO: nao foi possivel salvar o CSV: {e}\n")
-
         else:
             log_callback("Nenhum serial encontrado em OSMEs vencidas.\n")
 
         materiais = []
         materiais_vistos = set()
         if os.path.exists(materiais_path):
-            with open(materiais_path, "r", encoding="utf-8") as f:
-                for line in f:
-                    partes = [parte.strip() for parte in line.rstrip("\r\n").split("|", 7)]
-                    if len(partes) != 8:
-                        continue
-                    ordem, fim_base, material, descricao, unidade, quantidade, tipo, seriais = partes
-                    chave = (ordem, material, quantidade, seriais)
-                    if not material or chave in materiais_vistos:
-                        continue
-                    materiais_vistos.add(chave)
-                    materiais.append({
-                        "Equipe": equipe,
-                        "Ordem Destino": ordem_destino,
-                        "Ordem Origem": ordem,
-                        "Fim Base": fim_base,
-                        "Material": material,
-                        "Descricao": descricao,
-                        "Quantidade": quantidade,
-                        "Unidade": unidade,
-                        "Tipo": tipo,
-                        "Seriais": seriais,
-                    })
+            for line in _ler_linhas_seguras(materiais_path):
+                partes = [parte.strip() for parte in line.rstrip("\r\n").split("|", 7)]
+                if len(partes) != 8:
+                    continue
+                ordem, fim_base, material, descricao, unidade, quantidade, tipo, seriais = partes
+                chave = (ordem, material, quantidade, seriais)
+                if not material or chave in materiais_vistos:
+                    continue
+
+                # DUPLA VALIDAÇÃO DE SALDO: Pula sumariamente linhas negativas ou zero
+                qtd_dec = _quantidade_sap_para_decimal(quantidade)
+                if qtd_dec is None or qtd_dec <= 0:
+                    continue
+
+                # NUNCA transfere materiais da própria ordem de destino
+                if ordem == ordem_destino:
+                    continue
+
+                materiais_vistos.add(chave)
+                materiais.append({
+                    "Equipe": equipe,
+                    "Ordem Destino": ordem_destino,
+                    "Ordem Origem": ordem,
+                    "Fim Base": fim_base,
+                    "Material": material,
+                    "Descricao": descricao,
+                    "Quantidade": quantidade,
+                    "Unidade": unidade,
+                    "Tipo": tipo,
+                    "Seriais": seriais,
+                })
 
         if materiais:
             log_callback(f"Materiais com saldo positivo em OSMEs vencidas: {len(materiais)}\n")
@@ -904,8 +1309,25 @@ def executar(equipe, log_callback, serial_callback=None):
                     )
                     if removidos:
                         log_callback(
-                            f"{removidos} serial(is) removido(s) da transferencia por status ou recurso divergente.\n"
+                            f"⚠️ {removidos} serial(is) NÃO transferido(s) (mantidos na OSME antiga por status/recurso):\n"
                         )
+                        for item in conferencia:
+                            if item.get("Apto") != "SIM":
+                                mot = []
+                                rec = item.get("Recurso", "")
+                                if rec and _normalizar_status(rec) != _normalizar_status(equipe):
+                                    mot.append(f"recurso='{rec}'")
+                                sis = item.get("STS Sistema", "")
+                                if "LIDI" not in _normalizar_status(sis):
+                                    mot.append(f"sistema='{sis}'")
+                                usr = item.get("STS Usuario", "")
+                                if "DISP" not in _normalizar_status(usr):
+                                    mot.append(f"usuário='{usr}'")
+                                stm = item.get("ST Mov Mercadoria", "")
+                                if stm and "DISP" not in _normalizar_status(stm) and "DISPONIVEL" not in _normalizar_status(stm):
+                                    mot.append(f"movimento='{stm}'")
+                                motivo_txt = ", ".join(mot) if mot else (item.get("Erro") or "não disponível")
+                                log_callback(f"   • Serial {item.get('Serial')}: {motivo_txt}\n")
                     log_callback(f"Conferencia CSV salva em: {conferencia_csv}\n")
                 except Exception as e:
                     log_callback(f"AVISO: nao foi possivel concluir a conferencia ZMMCSE004: {e}\n")
@@ -933,6 +1355,13 @@ def executar(equipe, log_callback, serial_callback=None):
                     log_callback(
                         f"AVISO: nao foi possivel salvar a lista para transferencia: {e}\n"
                     )
+            else:
+                msg_aviso = (
+                    f"⚠️ {equipe}: Nenhum material elegível para transferência restou após a conferência.\n"
+                    "Todos os medidores encontrados estão com status diferente de LIDI DISP e foram mantidos na ordem anterior.\n"
+                )
+                log_callback(msg_aviso)
+                raise RuntimeError(msg_aviso)
 
             if serial_callback:
                 totais_nao_serializados = {}
@@ -1006,7 +1435,13 @@ def executar(equipe, log_callback, serial_callback=None):
 
                 serial_callback(linhas_resultado)
         else:
-            log_callback("Nenhum material com saldo positivo encontrado em OSMEs vencidas.\n")
+            msg_aviso = (
+                f"ℹ️ {equipe}: Nenhum material com saldo positivo encontrado em OSMEs vencidas.\n"
+                "Todas as linhas possuem saldo negativo ou zerado, ou já pertencem à ordem de destino.\n"
+                "Nenhum material pendente de transferência.\n"
+            )
+            log_callback(msg_aviso)
+            raise RuntimeError(msg_aviso)
     except subprocess.TimeoutExpired:
         log_callback("\nTempo limite excedido (600s).\n")
     except FileNotFoundError:
