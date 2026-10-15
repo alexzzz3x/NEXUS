@@ -1,7 +1,7 @@
 {
   "versao": "2.2.3",
   "data": "15/10/2026 16:45",
-  "url_download": "https://github.com/Alexzzz1x/N.E.X.U.S/releases/latest/download/NEXUS.zip",
+  "url_download": "",
   "notas": "[v2.2.3]\n• 🧭 Barra Lateral: Setas dinâmicas indicativas (◀ para recolher, ▶ para expandir)\n• 🔍 Busca Rápida na Barra Lateral (Omnibar no topo e atalho Ctrl+F)\n• 📐 Correção de Layout: Fim do vão preto à direita ao recolher/expandir o menu\n• 📄 Extrator OSME: Correção da captura de equipes na ZUDWM_237 (não fica mais preso em csc300)\n• 📊 OSME Atualizada: Ordenação decrescente por AUFNR (&SORT_DSC) e captura da ordem mais recente\n• 🖨️ Impressão Excel: Retry resiliente via COM evitando erro de operação indisponível\n• 🛑 Botão de Emergência: 'Interromper SAP' na barra de status para cancelar automações travadas\n• 🔔 Alertas Sonoros: Notificação sonora sutil do Windows ao concluir processos no SAP\n\n[v2.2.2]\n• 🎨 Nova Paleta de Cores: 'Cyberpunk Rose' no seletor de temas!\n• Modal de atualização ampliado (540x510) com botões fixos no rodapé\n• Encerramento e reinicialização 100% seguros em árvore (/T)\n\n[v2.2.1]\n• Sistema de atualização automática online via GitHub e rede local\n• Módulo Saída OSME com suporte a lançamento contábil (MIGO Z61)\n• Módulo Contagem de Depósito (conferência Lote 0 vs ZM29)\n• Gerenciador de bandeja do Windows (System Tray) para gravações seguras"
 }
 
