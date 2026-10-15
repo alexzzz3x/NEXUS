@@ -90,8 +90,8 @@ class ModalAtualizacao(ctk.CTkToplevel):
         self.obter_tema_atual = obter_tema_atual or (lambda: "Nexus")
         
         self.title("🚀 Atualização Disponível — N.E.X.U.S")
-        self.geometry("520x420")
-        self.minsize(480, 380)
+        self.geometry("540x510")
+        self.minsize(500, 470)
         self.resizable(False, False)
         self.attributes("-topmost", True)
         
@@ -100,8 +100,8 @@ class ModalAtualizacao(ctk.CTkToplevel):
             self.update_idletasks()
             sw = self.winfo_screenwidth()
             sh = self.winfo_screenheight()
-            x = int((sw - 520) / 2)
-            y = int((sh - 420) / 2)
+            x = int((sw - 540) / 2)
+            y = int((sh - 510) / 2)
             self.geometry(f"+{x}+{y}")
         except Exception:
             pass
@@ -117,8 +117,8 @@ class ModalAtualizacao(ctk.CTkToplevel):
         
         self.configure(fg_color=paleta.get("bg", "#090d16"))
 
-        # Cabeçalho
-        f_top = ctk.CTkFrame(self, fg_color=paleta.get("container", "#111827"), height=70, corner_radius=0)
+        # 1. Cabeçalho (Topo)
+        f_top = ctk.CTkFrame(self, fg_color=paleta.get("container", "#111827"), height=65, corner_radius=0)
         f_top.pack(fill="x", side="top")
         f_top.pack_propagate(False)
 
@@ -128,61 +128,11 @@ class ModalAtualizacao(ctk.CTkToplevel):
             font=("Segoe UI", 16, "bold"),
             text_color=paleta.get("accent", "#00d2ff")
         )
-        lbl_tit.pack(side="left", padx=20, pady=20)
+        lbl_tit.pack(side="left", padx=20, pady=18)
 
-        # Container Central
-        f_corpo = ctk.CTkFrame(self, fg_color="transparent")
-        f_corpo.pack(fill="both", expand=True, padx=20, pady=15)
-
-        versao_remota = self.dados_versao.get("versao", "Nova")
-        data_remota = self.dados_versao.get("data", "")
-        notas = self.dados_versao.get("notas", "Melhorias gerais e correções de estabilidade.")
-
-        f_chips = ctk.CTkFrame(f_corpo, fg_color=paleta.get("container", "#111827"), corner_radius=8)
-        f_chips.pack(fill="x", pady=(0, 12))
-
-        lbl_ver = ctk.CTkLabel(
-            f_chips,
-            text=f"Versão Atual: v{VERSAO_ATUAL}   ➔   Nova Versão: v{versao_remota}",
-            font=("Segoe UI", 13, "bold"),
-            text_color="#10b981"
-        )
-        lbl_ver.pack(padx=14, pady=(10, 4), anchor="w")
-
-        if data_remota:
-            lbl_dt = ctk.CTkLabel(
-                f_chips,
-                text=f"Publicada em: {data_remota}",
-                font=("Segoe UI", 10),
-                text_color="#94a3b8"
-            )
-            lbl_dt.pack(padx=14, pady=(0, 10), anchor="w")
-
-        # Caixa com Notas da Versão
-        lbl_not_tit = ctk.CTkLabel(f_corpo, text="📝 O que mudou nesta versão:", font=("Segoe UI", 11, "bold"), text_color=paleta.get("texto", "#f8fafc"))
-        lbl_not_tit.pack(anchor="w", pady=(0, 4))
-
-        txt_notas = ctk.CTkTextbox(f_corpo, fg_color=paleta.get("container", "#111827"), font=("Segoe UI", 11), height=110, corner_radius=8)
-        txt_notas.pack(fill="both", expand=True, pady=(0, 12))
-        txt_notas.insert("1.0", notas)
-        txt_notas.configure(state="disabled")
-
-        # Status / Barra de Progresso durante a instalação
-        self.lbl_status = ctk.CTkLabel(
-            f_corpo,
-            text="Clique em 'Atualizar Agora' para baixar e aplicar automaticamente.",
-            font=("Segoe UI", 10),
-            text_color="#94a3b8"
-        )
-        self.lbl_status.pack(anchor="w", pady=(0, 4))
-
-        self.progress_bar = ctk.CTkProgressBar(f_corpo, progress_color=paleta.get("accent", "#00d2ff"), height=8)
-        self.progress_bar.pack(fill="x", pady=(0, 10))
-        self.progress_bar.set(0)
-
-        # Rodapé / Botões
+        # 2. Rodapé / Botões (Empacotado no BOTTOM antes do corpo para nunca sumir ou ser cortado)
         f_botoes = ctk.CTkFrame(self, fg_color="transparent")
-        f_botoes.pack(fill="x", side="bottom", padx=20, pady=(0, 15))
+        f_botoes.pack(fill="x", side="bottom", padx=20, pady=(0, 18))
 
         self.btn_atualizar = ctk.CTkButton(
             f_botoes,
@@ -190,7 +140,7 @@ class ModalAtualizacao(ctk.CTkToplevel):
             font=("Segoe UI", 12, "bold"),
             fg_color="#10b981",
             hover_color="#059669",
-            height=38,
+            height=40,
             command=self._iniciar_atualizacao
         )
         self.btn_atualizar.pack(side="right", padx=(8, 0))
@@ -202,10 +152,60 @@ class ModalAtualizacao(ctk.CTkToplevel):
             fg_color=paleta.get("input", "#1a2436"),
             hover_color=paleta.get("container", "#111827"),
             text_color="#94a3b8",
-            height=38,
+            height=40,
             command=self.destroy
         )
         self.btn_depois.pack(side="right")
+
+        # 3. Container Central (Preenche todo o espaço intermediário restante)
+        f_corpo = ctk.CTkFrame(self, fg_color="transparent")
+        f_corpo.pack(fill="both", expand=True, padx=20, pady=(12, 10))
+
+        versao_remota = self.dados_versao.get("versao", "Nova")
+        data_remota = self.dados_versao.get("data", "")
+        notas = self.dados_versao.get("notas", "Melhorias gerais e correções de estabilidade.")
+
+        f_chips = ctk.CTkFrame(f_corpo, fg_color=paleta.get("container", "#111827"), corner_radius=8)
+        f_chips.pack(fill="x", pady=(0, 10))
+
+        lbl_ver = ctk.CTkLabel(
+            f_chips,
+            text=f"Versão Atual: v{VERSAO_ATUAL}   ➔   Nova Versão: v{versao_remota}",
+            font=("Segoe UI", 13, "bold"),
+            text_color="#10b981"
+        )
+        lbl_ver.pack(padx=14, pady=(8, 2), anchor="w")
+
+        if data_remota:
+            lbl_dt = ctk.CTkLabel(
+                f_chips,
+                text=f"Publicada em: {data_remota}",
+                font=("Segoe UI", 10),
+                text_color="#94a3b8"
+            )
+            lbl_dt.pack(padx=14, pady=(0, 8), anchor="w")
+
+        # Caixa com Notas da Versão
+        lbl_not_tit = ctk.CTkLabel(f_corpo, text="📝 O que mudou nesta versão:", font=("Segoe UI", 11, "bold"), text_color=paleta.get("texto", "#f8fafc"))
+        lbl_not_tit.pack(anchor="w", pady=(0, 4))
+
+        txt_notas = ctk.CTkTextbox(f_corpo, fg_color=paleta.get("container", "#111827"), font=("Segoe UI", 11), height=105, corner_radius=8)
+        txt_notas.pack(fill="both", expand=True, pady=(0, 10))
+        txt_notas.insert("1.0", notas)
+        txt_notas.configure(state="disabled")
+
+        # Status / Barra de Progresso durante a instalação
+        self.lbl_status = ctk.CTkLabel(
+            f_corpo,
+            text="Clique em 'Atualizar Agora' para baixar e aplicar automaticamente.",
+            font=("Segoe UI", 10),
+            text_color="#94a3b8"
+        )
+        self.lbl_status.pack(anchor="w", pady=(0, 3))
+
+        self.progress_bar = ctk.CTkProgressBar(f_corpo, progress_color=paleta.get("accent", "#00d2ff"), height=8)
+        self.progress_bar.pack(fill="x", pady=(0, 5))
+        self.progress_bar.set(0)
 
     def _iniciar_atualizacao(self):
         self.btn_atualizar.configure(state="disabled", text="⏳ Atualizando...")
