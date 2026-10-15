@@ -1,6 +1,6 @@
 {
-  "versao": "1.0.0",
+  "versao": "2.2.1",
   "data": "15/10/2026",
   "url_download": "https://github.com/Alexzzz1x/N.E.X.U.S/releases/latest/download/NEXUS.zip",
-  "notas": "• N.E.X.U.S v1.0 — Versão Oficial de Lançamento\n• Módulo Saída OSME integrado com suporte a lançamento contábil (MIGO Z61)\n• Módulo Contagem de Carro com auditoria ZMMCSE\n• Módulo Contagem de Depósito (conferência Lote 0 vs ZM29)\n• Módulo Atualizar OSME com filtro inteligente de vigência na IW39\n• Módulo Mudança de Recurso com inversão de fluxo e validação pré-voo\n• Gerenciador de bandeja do sistema (System Tray) para gravações seguras\n• Sistema de atualização online integrado ao GitHub"
+  "notas": "• N.E.X.U.S v2.2.1 com auto-updater integrado\n• Módulo Saída OSME integrado com suporte a lançamento contábil (MIGO Z61)\n• Módulo Contagem de Carro com auditoria ZMMCSE\n• Módulo Contagem de Depósito (conferência Lote 0 vs ZM29)\n• Módulo Atualizar OSME com filtro inteligente de vigência na IW39\n• Módulo Mudança de Recurso com inversão de fluxo e validação pré-voo\n• Gerenciador de bandeja do sistema (System Tray) para gravações seguras\n• Sistema de atualização online integrado ao GitHub"
 }
