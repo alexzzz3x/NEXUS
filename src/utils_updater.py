@@ -25,7 +25,7 @@ import customtkinter as ctk
 
 import urllib.request
 
-VERSAO_ATUAL = "2.2.1"
+VERSAO_ATUAL = "2.2.2"
 
 # 1. Endereço online no GitHub (prioridade máxima — funciona de qualquer lugar)
 URL_VERSAO_GITHUB = "https://raw.githubusercontent.com/Alexzzz1x/N.E.X.U.S/main/versao.json"

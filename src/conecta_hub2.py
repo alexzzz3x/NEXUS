@@ -58,6 +58,7 @@ PALETAS = {
     "Emerald Pro": {"bg": "#0f1f1b", "container": "#18352e", "texto": "#f8fafc", "accent": "#10b981", "hover": "#059669", "input": "#21483e", "scrollbar": "#6ba99a", "scrollbar_hover": "#8fd4c3", "scrollbar_trough": "#132b25"},
     "Graphite Orange": {"bg": "#171717", "container": "#262626", "texto": "#fafafa", "accent": "#f97316", "hover": "#ea580c", "input": "#3f3f46", "scrollbar": "#737373", "scrollbar_hover": "#a3a3a3", "scrollbar_trough": "#202020"},
     "Royal Indigo": {"bg": "#17152b", "container": "#262447", "texto": "#ffffff", "accent": "#8b5cf6", "hover": "#7c3aed", "input": "#34315f", "scrollbar": "#8179bd", "scrollbar_hover": "#a69cf0", "scrollbar_trough": "#201d3b"},
+    "Cyberpunk Rose": {"bg": "#0d0914", "container": "#1a1226", "texto": "#faf5ff", "accent": "#f43f5e", "hover": "#e11d48", "input": "#2c1e40", "scrollbar": "#7e22ce", "scrollbar_hover": "#f43f5e", "scrollbar_trough": "#130d1d"},
 }
 # Compatibilidade transparente para módulos legados
 PALETAS["Conecta Blue"] = PALETAS["Azul Delray"]
