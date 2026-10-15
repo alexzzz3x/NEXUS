@@ -269,12 +269,18 @@ class ModalAtualizacao(ctk.CTkToplevel):
                 ))
 
                 # 2. Gera o script silencioso .bat que substitui o executável
+                # Importante: Limpa _MEIPASS2, PYTHONHOME e PYTHONPATH para a nova instancia nao herdar caminhos temporarios antigos
                 script_bat = os.path.join(pasta_temp, "aplicar_nexus_update.bat")
                 conteudo_bat = f"""@echo off
-title Atualizando N.E.X.U.S...
-echo Aguardando fechamento do N.E.X.U.S...
-timeout /t 2 /nobreak > nul
-taskkill /F /IM "N.E.X.U.S.exe" > nul 2>&1
+set _MEIPASS2=
+set PYTHONHOME=
+set PYTHONPATH=
+echo Encerrando todas as instancias do N.E.X.U.S...
+:loop_kill
+taskkill /F /T /IM "N.E.X.U.S.exe" > nul 2>&1
+timeout /t 1 /nobreak > nul
+tasklist /FI "IMAGENAME eq N.E.X.U.S.exe" 2>NUL | find /I /N "N.E.X.U.S.exe" > NUL
+if "%ERRORLEVEL%"=="0" goto loop_kill
 timeout /t 1 /nobreak > nul
 
 echo Extraindo nova versao...
@@ -284,6 +290,9 @@ echo Limpando arquivos temporarios...
 del /F /Q "{zip_local}" > nul 2>&1
 
 echo Reiniciando N.E.X.U.S...
+set _MEIPASS2=
+set PYTHONHOME=
+set PYTHONPATH=
 start "" "{caminho_exe}"
 del /F /Q "%~f0" > nul 2>&1
 exit
@@ -291,8 +300,17 @@ exit
                 with open(script_bat, "w", encoding="latin-1") as f:
                     f.write(conteudo_bat)
 
-                # 3. Dispara o .bat desacoplado e encerra a instância atual
-                subprocess.Popen(["cmd.exe", "/c", script_bat], shell=True, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0)
+                # 3. Dispara o .bat desacoplado com ambiente higienizado e encerra a instância atual
+                env_limpo = os.environ.copy()
+                env_limpo.pop("_MEIPASS2", None)
+                env_limpo.pop("PYTHONHOME", None)
+                env_limpo.pop("PYTHONPATH", None)
+                subprocess.Popen(
+                    ["cmd.exe", "/c", script_bat],
+                    env=env_limpo,
+                    shell=True,
+                    creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+                )
                 
                 # Encerra o processo do Python/NEXUS
                 os._exit(0)
