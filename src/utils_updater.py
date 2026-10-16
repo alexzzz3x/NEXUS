@@ -25,7 +25,7 @@ import customtkinter as ctk
 
 import urllib.request
 
-VERSAO_ATUAL = "2.2.5"
+VERSAO_ATUAL = "2.2.6"
 
 # 1. Endereço online no GitHub (prioridade máxima — funciona de qualquer lugar)
 URL_VERSAO_GITHUB = "https://raw.githubusercontent.com/Alexzzzx2/NEXUS/main/versao.json"
@@ -195,15 +195,26 @@ class ModalAtualizacao(ctk.CTkToplevel):
         txt_notas.configure(state="disabled")
 
         # Status / Barra de Progresso durante a instalação
+        self.frame_progresso = ctk.CTkFrame(f_corpo, fg_color="transparent")
+        self.frame_progresso.pack(fill="x", pady=(0, 3))
+
         self.lbl_status = ctk.CTkLabel(
-            f_corpo,
+            self.frame_progresso,
             text="Clique em 'Atualizar Agora' para baixar e aplicar automaticamente.",
             font=("Segoe UI", 10),
             text_color="#94a3b8"
         )
-        self.lbl_status.pack(anchor="w", pady=(0, 3))
+        self.lbl_status.pack(side="left")
 
-        self.progress_bar = ctk.CTkProgressBar(f_corpo, progress_color=paleta.get("accent", "#00d2ff"), height=8)
+        self.lbl_pct = ctk.CTkLabel(
+            self.frame_progresso,
+            text="",
+            font=("Segoe UI", 11, "bold"),
+            text_color=paleta.get("accent", "#00d2ff")
+        )
+        self.lbl_pct.pack(side="right")
+
+        self.progress_bar = ctk.CTkProgressBar(f_corpo, progress_color=paleta.get("accent", "#00d2ff"), height=10, corner_radius=5)
         self.progress_bar.pack(fill="x", pady=(0, 5))
         self.progress_bar.set(0)
 
@@ -211,6 +222,7 @@ class ModalAtualizacao(ctk.CTkToplevel):
         self.btn_atualizar.configure(state="disabled", text="⏳ Atualizando...")
         self.btn_depois.configure(state="disabled")
         self.progress_bar.set(0)
+        self.lbl_pct.configure(text="0%")
         self.lbl_status.configure(text="Iniciando download da atualização...", text_color="#38bdf8")
 
         def _thread_copia():
@@ -250,13 +262,15 @@ class ModalAtualizacao(ctk.CTkToplevel):
                                 dl_bytes += len(chunk)
                                 if total_size > 0:
                                     pct = min(1.0, dl_bytes / total_size)
-                                    self.after(0, lambda p=pct, b=dl_bytes, t=total_size: (
+                                    mb_dl = dl_bytes / (1024 * 1024)
+                                    mb_tot = total_size / (1024 * 1024)
+                                    self.after(0, lambda p=pct, b=mb_dl, t=mb_tot: (
                                         self.progress_bar.set(p),
-                                        self.lbl_status.configure(text=f"Baixando: {b // 1024} KB / {t // 1024} KB ({int(p*100)}%)")
+                                        self.lbl_status.configure(text=f"Baixando: {b:.1f} MB / {t:.1f} MB"),
+                                        self.lbl_pct.configure(text=f"{int(p * 100)}%")
                                     ))
                         sucesso_download = True
                     except Exception as erro_web:
-                        # Se o download online falhar (ex: 404 Not Found, timeout ou bloqueio), tenta a rede local antes de estourar erro
                         if not os.path.exists(ARQUIVO_ZIP_REDE):
                             raise erro_web
                         self.after(0, lambda: self.lbl_status.configure(
@@ -268,15 +282,32 @@ class ModalAtualizacao(ctk.CTkToplevel):
                     caminho_origem = url_down if (url_down and os.path.exists(url_down)) else ARQUIVO_ZIP_REDE
                     if not os.path.exists(caminho_origem):
                         raise FileNotFoundError(f"Arquivo de atualização não encontrado:\n{caminho_origem}")
-                    self.after(0, lambda: (
-                        self.progress_bar.start(),
-                        self.lbl_status.configure(text="Copiando pacote da rede local... Por favor, aguarde.", text_color="#38bdf8")
-                    ))
-                    shutil.copy2(caminho_origem, zip_local)
+                    
+                    tamanho_total = os.path.getsize(caminho_origem)
+                    copiado = 0
+                    chunk_size = 1024 * 1024  # 1 MB por bloco
+                    with open(caminho_origem, "rb") as src, open(zip_local, "wb") as dst:
+                        while True:
+                            bloco = src.read(chunk_size)
+                            if not bloco:
+                                break
+                            dst.write(bloco)
+                            copiado += len(bloco)
+                            pct = min(1.0, copiado / tamanho_total) if tamanho_total > 0 else 0
+                            mb_copiado = copiado / (1024 * 1024)
+                            mb_total = tamanho_total / (1024 * 1024)
+                            self.after(0, lambda p=pct, c=mb_copiado, t=mb_total: (
+                                self.progress_bar.set(p),
+                                self.lbl_status.configure(
+                                    text=f"Copiando da rede: {c:.1f} MB / {t:.1f} MB",
+                                    text_color="#38bdf8"
+                                ),
+                                self.lbl_pct.configure(text=f"{int(p * 100)}%")
+                            ))
 
                 self.after(0, lambda: (
-                    self.progress_bar.stop(),
                     self.progress_bar.set(1.0),
+                    self.lbl_pct.configure(text="100%", text_color="#10b981"),
                     self.lbl_status.configure(text="Aplicando nova versão e reiniciando...", text_color="#10b981")
                 ))
 
