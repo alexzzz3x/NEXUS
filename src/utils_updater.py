@@ -25,7 +25,7 @@ import customtkinter as ctk
 
 import urllib.request
 
-VERSAO_ATUAL = "2.2.3"
+VERSAO_ATUAL = "2.2.4"
 
 # 1. Endereço online no GitHub (prioridade máxima — funciona de qualquer lugar)
 URL_VERSAO_GITHUB = "https://raw.githubusercontent.com/Alexzzz1x/N.E.X.U.S/main/versao.json"
@@ -231,28 +231,40 @@ class ModalAtualizacao(ctk.CTkToplevel):
                 pasta_temp = tempfile.gettempdir()
                 zip_local = os.path.join(pasta_temp, "NEXUS_UPDATE_TEMP.zip")
 
-                # 1. Download Online (HTTP/HTTPS) ou Cópia de Rede
+                # 1. Download Online (HTTP/HTTPS) ou Fallback para Cópia de Rede
+                sucesso_download = False
                 if url_down.startswith("http://") or url_down.startswith("https://"):
-                    self.after(0, lambda: self.lbl_status.configure(text="Conectando ao servidor...", text_color="#38bdf8"))
-                    req = urllib.request.Request(url_down, headers={"User-Agent": "NEXUS-Desktop-Updater"})
-                    with urllib.request.urlopen(req, timeout=90) as resp, open(zip_local, "wb") as out_f:
-                        total_len = resp.headers.get("Content-Length")
-                        total_size = int(total_len) if total_len and total_len.isdigit() else 0
-                        dl_bytes = 0
-                        chunk_size = 65536
-                        while True:
-                            chunk = resp.read(chunk_size)
-                            if not chunk:
-                                break
-                            out_f.write(chunk)
-                            dl_bytes += len(chunk)
-                            if total_size > 0:
-                                pct = min(1.0, dl_bytes / total_size)
-                                self.after(0, lambda p=pct, b=dl_bytes, t=total_size: (
-                                    self.progress_bar.set(p),
-                                    self.lbl_status.configure(text=f"Baixando: {b // 1024} KB / {t // 1024} KB ({int(p*100)}%)")
-                                ))
-                else:
+                    try:
+                        self.after(0, lambda: self.lbl_status.configure(text="Conectando ao servidor...", text_color="#38bdf8"))
+                        req = urllib.request.Request(url_down, headers={"User-Agent": "NEXUS-Desktop-Updater"})
+                        with urllib.request.urlopen(req, timeout=90) as resp, open(zip_local, "wb") as out_f:
+                            total_len = resp.headers.get("Content-Length")
+                            total_size = int(total_len) if total_len and total_len.isdigit() else 0
+                            dl_bytes = 0
+                            chunk_size = 65536
+                            while True:
+                                chunk = resp.read(chunk_size)
+                                if not chunk:
+                                    break
+                                out_f.write(chunk)
+                                dl_bytes += len(chunk)
+                                if total_size > 0:
+                                    pct = min(1.0, dl_bytes / total_size)
+                                    self.after(0, lambda p=pct, b=dl_bytes, t=total_size: (
+                                        self.progress_bar.set(p),
+                                        self.lbl_status.configure(text=f"Baixando: {b // 1024} KB / {t // 1024} KB ({int(p*100)}%)")
+                                    ))
+                        sucesso_download = True
+                    except Exception as erro_web:
+                        # Se o download online falhar (ex: 404 Not Found, timeout ou bloqueio), tenta a rede local antes de estourar erro
+                        if not os.path.exists(ARQUIVO_ZIP_REDE):
+                            raise erro_web
+                        self.after(0, lambda: self.lbl_status.configure(
+                            text="Download online indisponível. Recorrendo à rede corporativa (Drive X)...",
+                            text_color="#fbbf24"
+                        ))
+
+                if not sucesso_download:
                     caminho_origem = url_down if (url_down and os.path.exists(url_down)) else ARQUIVO_ZIP_REDE
                     if not os.path.exists(caminho_origem):
                         raise FileNotFoundError(f"Arquivo de atualização não encontrado:\n{caminho_origem}")

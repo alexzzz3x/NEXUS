@@ -262,9 +262,12 @@ Documentação detalhada e instruções de suporte para guiar o assistente virtu
   - Tratar/remover entradas duplicadas de seriais/itens (fazer deduplicação automática ao carregar ou processar na fila).
   - Adicionado botão de continuidade direto no topo (card de seriais), na tabela de conferência, no modal de alerta de não fornecidos e barra fixa no rodapé da janela para nunca sumir no scroll.
   - Campo opcional `📅 Data Lçto. (Fechamento SAP)` no Card de Destino e injeção da sub-rotina `PreencherDataLancamento` em ambos os movimentos MIGO (Z62 e Z61) para superar bloqueios de fechamento contábil.
-- [x] **Módulo Saída OSME (`src/modulo_saida_osme.py`)**:
+- [x] **Módulo Saída OSME (`src/modulo_saida_osme.py` & `src/utils_backup_diario.py`)**:
   - Campo opcional `📅 Data Lçto. (Fechamento SAP)` no Card de Equipe / OSME.
   - Injeção da sub-rotina `PreencherDataLancamento` no script MIGO Z61 (`ctxtGOHEAD-BUDAT`) para permitir lançamento contábil em períodos de fechamento do SAP.
+  - **Backup Diário Local Blindado (`Documentos\NEXUS_Backups\Saidas_OSME_AAAA-MM-DD.xlsx`)**: grava cada saída de serial/material imediatamente no Excel local com colunas idênticas à aba FORNECIDOS, imune a bloqueios de rede e concorrência.
+  - **Auditoria Automática & Comparador (`ModalCompararBackup`)**: botão `🔍 Comparar vs Mestre` cruza o backup diário com a aba FORNECIDOS da rede em 2 segundos, confirmando 100% de gravação ou permitindo sincronizar saídas faltantes com 1 clique.
+  - Botão `📁 Backup Diário (.xlsx)` para abertura instantânea no Excel.
 - [x] **Módulo Transferência de OSME (`src/modulo_transferenciaosme.py` / `modulos/transferencia_osmes_final.py`)**:
   - Campo opcional `📅 Data Lçto. (Fechamento SAP)` na interface com validação estrita de calendário (`dd.mm.aaaa`).
   - Função `_preencher_data_lancamento` no backend Python COM para aplicar a data de lançamento na aba Geral do Cabeçalho da MIGO (Z62 e Z61), expandindo o cabeçalho se recolhido, disparando Enter e tratando modais para viabilizar fechamentos contábeis.

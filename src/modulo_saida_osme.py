@@ -25,6 +25,12 @@ from utils_pendencias_planilha import (
     criar_backup_preventivo
 )
 from utils_metrics import incrementar_metrica
+from utils_backup_diario import (
+    gravar_saida_backup_diario,
+    abrir_backup_diario,
+    comparar_backup_com_mestre,
+    obter_caminho_backup_diario
+)
 
 CAMINHO_CONFIG = obter_caminho_config("config_saida_osme_caminho.json")
 
@@ -187,6 +193,237 @@ class ModalAlertaFornecidos(ctk.CTkToplevel):
             command=self.destroy
         )
         btn_fechar.pack(fill="x", padx=16, pady=(0, 14))
+
+
+class ModalCompararBackup(ctk.CTkToplevel):
+    """Pop-up modal moderno exibindo o resultado da auditoria entre o backup diário local e a planilha mestre."""
+    def __init__(self, parent, resultado, caminho_mestre, callback_recarregar=None, paletas=None, obter_tema_atual=None):
+        super().__init__(parent)
+        self.resultado = resultado
+        self.caminho_mestre = caminho_mestre
+        self.callback_recarregar = callback_recarregar
+        self.paletas = paletas or DEFAULT_PALETAS
+        self.obter_tema_atual = obter_tema_atual or (lambda: "Nexus")
+
+        self.title("🔍 Auditoria de Saídas: Backup Local vs Planilha Mestre")
+        self.geometry("640x520")
+        self.minsize(560, 420)
+        self.attributes("-topmost", True)
+        self.after(300, lambda: self.attributes("-topmost", False))
+        self.configure(fg_color="#18181b")
+
+        self._construir_ui()
+
+    def _construir_ui(self):
+        sucesso = self.resultado.get("sucesso", False)
+        if not sucesso:
+            f_topo = ctk.CTkFrame(self, fg_color="#7f1d1d", corner_radius=0, height=55)
+            f_topo.pack(side="top", fill="x")
+            f_topo.pack_propagate(False)
+            ctk.CTkLabel(
+                f_topo,
+                text="❌ ERRO AO COMPARAR BACKUP COM PLANILHA MESTRE",
+                font=("Segoe UI", 12, "bold"),
+                text_color="#fecaca"
+            ).pack(side="left", padx=16, pady=14)
+
+            lbl_err = ctk.CTkLabel(
+                self,
+                text=self.resultado.get("erro", "Erro desconhecido ao comparar."),
+                font=("Segoe UI", 11),
+                text_color="#f87171",
+                justify="left",
+                wraplength=580
+            )
+            lbl_err.pack(padx=20, pady=25)
+
+            ctk.CTkButton(
+                self,
+                text="Fechar",
+                font=("Segoe UI", 11, "bold"),
+                height=36,
+                command=self.destroy
+            ).pack(side="bottom", padx=20, pady=16, fill="x")
+            return
+
+        total_bk = self.resultado.get("total_backup", 0)
+        confirmados = self.resultado.get("confirmados", 0)
+        faltantes = self.resultado.get("faltantes", [])
+
+        if len(faltantes) == 0:
+            f_topo = ctk.CTkFrame(self, fg_color="#14532d", corner_radius=0, height=55)
+            f_topo.pack(side="top", fill="x")
+            f_topo.pack_propagate(False)
+            ctk.CTkLabel(
+                f_topo,
+                text="✅ 100% AUDITADO E SINCRONIZADO COM A REDE!",
+                font=("Segoe UI", 13, "bold"),
+                text_color="#bbf7d0"
+            ).pack(side="left", padx=16, pady=14)
+
+            f_corpo = ctk.CTkFrame(self, fg_color="transparent")
+            f_corpo.pack(fill="both", expand=True, padx=20, pady=20)
+
+            lbl_grande = ctk.CTkLabel(
+                f_corpo,
+                text=f"🎉 Todas as {total_bk} saídas de seriais registradas no seu backup diário de hoje constam com sucesso na aba FORNECIDOS da planilha mestre!",
+                font=("Segoe UI", 12),
+                text_color="#f8fafc",
+                justify="left",
+                wraplength=580
+            )
+            lbl_grande.pack(pady=(15, 20), anchor="w")
+
+            card_info = ctk.CTkFrame(f_corpo, fg_color="#27272a", corner_radius=8)
+            card_info.pack(fill="x", pady=10)
+
+            ctk.CTkLabel(
+                card_info,
+                text=f"📁 Arquivo de Backup Local: {os.path.basename(self.resultado.get('caminho_backup', ''))}\n"
+                     f"🌐 Planilha Mestre (Rede): {os.path.basename(self.resultado.get('caminho_mestre', ''))}\n"
+                     f"📊 Total Conferido: {confirmados} itens validados com êxito.",
+                font=("Consolas", 10),
+                text_color="#94a3b8",
+                justify="left"
+            ).pack(padx=14, pady=12, anchor="w")
+
+            f_botoes = ctk.CTkFrame(self, fg_color="transparent")
+            f_botoes.pack(side="bottom", fill="x", padx=20, pady=16)
+
+            ctk.CTkButton(
+                f_botoes,
+                text="📁 Abrir Backup Diário no Excel",
+                font=("Segoe UI", 11, "bold"),
+                fg_color="#059669",
+                hover_color="#047857",
+                height=36,
+                command=lambda: [abrir_backup_diario(), self.destroy()]
+            ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+            ctk.CTkButton(
+                f_botoes,
+                text="Fechar",
+                font=("Segoe UI", 11),
+                height=36,
+                command=self.destroy
+            ).pack(side="right", fill="x", expand=True)
+
+        else:
+            f_topo = ctk.CTkFrame(self, fg_color="#78350f", corner_radius=0, height=55)
+            f_topo.pack(side="top", fill="x")
+            f_topo.pack_propagate(False)
+            ctk.CTkLabel(
+                f_topo,
+                text=f"⚠️ DIVERGÊNCIA: {len(faltantes)} SAÍDA(S) NÃO GRAVADA(S) NA REDE",
+                font=("Segoe UI", 13, "bold"),
+                text_color="#fef3c7"
+            ).pack(side="left", padx=16, pady=14)
+
+            lbl_sub = ctk.CTkLabel(
+                self,
+                text=f"Foram identificados {len(faltantes)} seriais no seu backup local que ainda NÃO constam na aba FORNECIDOS da planilha mestre.\n"
+                     "Você pode sincronizá-los agora mesmo clicando no botão verde abaixo:",
+                font=("Segoe UI", 11),
+                text_color="#f8fafc",
+                justify="left"
+            )
+            lbl_sub.pack(anchor="w", padx=20, pady=(12, 8))
+
+            scroll = ctk.CTkScrollableFrame(self, fg_color="#27272a", corner_radius=8)
+            scroll.pack(fill="both", expand=True, padx=20, pady=(0, 12))
+
+            for it in faltantes:
+                card = ctk.CTkFrame(scroll, fg_color="#3f3f46", corner_radius=6)
+                card.pack(fill="x", pady=3, padx=2)
+
+                f_l1 = ctk.CTkFrame(card, fg_color="transparent")
+                f_l1.pack(fill="x", padx=10, pady=(6, 2))
+                ctk.CTkLabel(f_l1, text=f"Serial: {it['serial']}", font=("Consolas", 12, "bold"), text_color="#fbbf24").pack(side="left")
+                ctk.CTkLabel(f_l1, text=f"Equipe: {it.get('equipe', '-')}", font=("Segoe UI", 10, "bold"), text_color="#38bdf8").pack(side="right")
+
+                f_l2 = ctk.CTkFrame(card, fg_color="transparent")
+                f_l2.pack(fill="x", padx=10, pady=(0, 6))
+                ctk.CTkLabel(
+                    f_l2,
+                    text=f"Material: {it.get('material', '-')}  |  Doc SAP: {it.get('doc_sap', '-')}  |  Dep: {it.get('deposito', 'CL03')}  |  Hora: {it.get('hora_nexus', '-')}",
+                    font=("Segoe UI", 10),
+                    text_color="#cbd5e1"
+                ).pack(side="left")
+
+            f_botoes = ctk.CTkFrame(self, fg_color="transparent")
+            f_botoes.pack(side="bottom", fill="x", padx=20, pady=(0, 14))
+
+            ctk.CTkButton(
+                f_botoes,
+                text="🚀 Gravar Faltantes na Rede Agora",
+                font=("Segoe UI", 11, "bold"),
+                fg_color="#10b981",
+                hover_color="#059669",
+                height=38,
+                command=self._gravar_faltantes
+            ).pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+            ctk.CTkButton(
+                f_botoes,
+                text="📁 Abrir Backup",
+                font=("Segoe UI", 11),
+                height=38,
+                command=abrir_backup_diario
+            ).pack(side="left", padx=(0, 8))
+
+            ctk.CTkButton(
+                f_botoes,
+                text="Fechar",
+                font=("Segoe UI", 11),
+                height=38,
+                command=self.destroy
+            ).pack(side="right")
+
+    def _gravar_faltantes(self):
+        faltantes = self.resultado.get("faltantes", [])
+        if not faltantes:
+            return
+
+        from utils_pendencias_planilha import tentar_gravar_saida_osme, adicionar_pendencia
+        grupos = {}
+        for it in faltantes:
+            chave = (it.get("equipe") or "-", it.get("doc_sap") or "-", it.get("data_lcto") or "-")
+            if chave not in grupos:
+                grupos[chave] = []
+            grupos[chave].append(it)
+
+        sucessos = 0
+        pendencias = 0
+        for (eq, doc, dt), lista_itens in grupos.items():
+            itens_fmt = [{"serial": x["serial"], "material": x["material"], "deposito": x.get("deposito", "CL03")} for x in lista_itens]
+            ok, metodo = tentar_gravar_saida_osme(self.caminho_mestre, eq, doc, dt, itens_fmt)
+            if ok:
+                sucessos += len(lista_itens)
+            else:
+                adicionar_pendencia(
+                    tipo="saida_osme",
+                    caminho_planilha=self.caminho_mestre,
+                    dados_operacao={
+                        "equipe": eq,
+                        "doc_sap": doc,
+                        "data": dt,
+                        "deposito": lista_itens[0].get("deposito", "CL03"),
+                        "itens": itens_fmt
+                    },
+                    motivo="Sincronização manual via Auditoria de Backup"
+                )
+                pendencias += len(lista_itens)
+
+        msg = []
+        if sucessos > 0:
+            msg.append(f"🎉 {sucessos} item(ns) gravados diretamente na planilha mestre!")
+        if pendencias > 0:
+            msg.append(f"⏳ {pendencias} item(ns) adicionados à Fila de Pendências (planilha em uso na rede).")
+
+        messagebox.showinfo("Sincronização de Backup", "\n\n".join(msg), parent=self)
+        if self.callback_recarregar:
+            self.callback_recarregar()
+        self.destroy()
 
 
 class ModalVisualizarWorkforce(ctk.CTkToplevel):
@@ -514,6 +751,7 @@ class AbaSaidaOSME:
         self.seriais_validados_atuais = [] # [ {"serial": str, ...} ]
         self.carregando = False
         self.processando_sap = False
+        self.modal_fornecidos_ativo = None
 
         self.texto_workforce = ""
         self.totais_materiais = OrderedDict()
@@ -562,15 +800,19 @@ class AbaSaidaOSME:
             try:
                 with open(CAMINHO_CONFIG, "r", encoding="utf-8") as f:
                     dados = json.load(f)
-                if "caminho" in dados and os.path.isfile(dados["caminho"]):
-                    self.caminho_planilha = dados["caminho"]
+                caminho = dados.get("caminho") or dados.get("caminho_planilha")
+                if caminho and os.path.isfile(caminho):
+                    self.caminho_planilha = caminho
             except Exception:
                 pass
 
     def _salvar_caminho(self):
         try:
             with open(CAMINHO_CONFIG, "w", encoding="utf-8") as f:
-                json.dump({"caminho": self.caminho_planilha}, f)
+                json.dump({
+                    "caminho": self.caminho_planilha,
+                    "caminho_planilha": self.caminho_planilha
+                }, f, indent=2, ensure_ascii=False)
         except Exception:
             pass
 
@@ -694,6 +936,30 @@ class AbaSaidaOSME:
         )
         self.lbl_nome_planilha.pack(side="left")
 
+        self.btn_comparar_backup = ctk.CTkButton(
+            f_plan_botoes,
+            text="🔍 Comparar vs Mestre",
+            font=("Segoe UI", 10, "bold"),
+            fg_color="#0284c7",
+            hover_color="#0369a1",
+            height=30,
+            width=150,
+            command=self._comparar_backup_com_mestre_acao
+        )
+        self.btn_comparar_backup.pack(side="right", padx=(6, 0))
+
+        self.btn_abrir_backup = ctk.CTkButton(
+            f_plan_botoes,
+            text="📁 Backup Diário (.xlsx)",
+            font=("Segoe UI", 10, "bold"),
+            fg_color="#059669",
+            hover_color="#047857",
+            height=30,
+            width=160,
+            command=self._abrir_backup_diario_acao
+        )
+        self.btn_abrir_backup.pack(side="right", padx=(6, 0))
+
         # Badges informativos de leitura
         f_badges = ctk.CTkFrame(self.frame_planilha, fg_color="transparent")
         f_badges.pack(fill="x", padx=12, pady=(0, 8))
@@ -705,7 +971,10 @@ class AbaSaidaOSME:
         self.badge_estoque.pack(side="left", padx=(0, 15))
 
         self.badge_fornecidos = ctk.CTkLabel(f_badges, text="🏷️ Já Fornecidos: 0", font=("Segoe UI", 10, "bold"), text_color="#a1a1aa")
-        self.badge_fornecidos.pack(side="left")
+        self.badge_fornecidos.pack(side="left", padx=(0, 15))
+
+        self.badge_backup = ctk.CTkLabel(f_badges, text="🛡️ Backup Diário: Ativo", font=("Segoe UI", 10, "bold"), text_color="#10b981")
+        self.badge_backup.pack(side="right")
 
         # Banner de Pendências de Sincronização (Auto-Retry quando a planilha estiver em uso)
         self.f_banner_pendencias = ctk.CTkFrame(self.frame_planilha, fg_color="#78350f", corner_radius=6)
@@ -1015,6 +1284,42 @@ class AbaSaidaOSME:
         self.txt_log.pack(fill="x", padx=12, pady=(0, 8))
         self.txt_log.configure(state="disabled")
 
+    def _abrir_backup_diario_acao(self):
+        try:
+            ok, res = abrir_backup_diario()
+            if ok:
+                self._log(f"📁 Planilha de backup diário aberta no Excel: {os.path.basename(res)}")
+                self._status(f"Backup diário aberto: {os.path.basename(res)}")
+            else:
+                messagebox.showerror("Backup Diário", f"Não foi possível abrir o arquivo de backup:\n{res}")
+        except Exception as e:
+            messagebox.showerror("Backup Diário", f"Erro ao abrir backup:\n{e}")
+
+    def _comparar_backup_com_mestre_acao(self):
+        if not self.caminho_planilha or not os.path.exists(self.caminho_planilha):
+            messagebox.showwarning("Auditoria de Saídas", "Selecione primeiro a planilha mestre de controle.")
+            return
+
+        self._status("Comparando backup diário com planilha mestre...")
+        self._log("⏳ Realizando auditoria: cruzando backup diário com a aba FORNECIDOS da rede...")
+
+        def _thread_auditoria():
+            res = comparar_backup_com_mestre(self.caminho_planilha)
+            self.parent_frame.after(0, lambda: self._exibir_modal_auditoria(res))
+
+        threading.Thread(target=_thread_auditoria, daemon=True).start()
+
+    def _exibir_modal_auditoria(self, res):
+        self._status("Auditoria concluída.")
+        ModalCompararBackup(
+            self.parent_frame,
+            resultado=res,
+            caminho_mestre=self.caminho_planilha,
+            callback_recarregar=self.carregar_planilha_async,
+            paletas=self.paletas,
+            obter_tema_atual=self.obter_tema_atual
+        )
+
     def _selecionar_planilha(self):
         caminho = filedialog.askopenfilename(
             title="Selecionar Planilha de Controle (CONTROLE_SERIAIS)",
@@ -1032,6 +1337,9 @@ class AbaSaidaOSME:
 
     def carregar_planilha_async(self):
         if not self.caminho_planilha or not os.path.isfile(self.caminho_planilha):
+            self._carregar_caminho_salvo()
+
+        if not self.caminho_planilha or not os.path.isfile(self.caminho_planilha):
             messagebox.showwarning("Saída OSME", "Por favor, selecione primeiro a planilha de controle.")
             return
 
@@ -1041,7 +1349,7 @@ class AbaSaidaOSME:
         self.carregando = True
         self.btn_recarregar.configure(state="disabled", text="Lendo...")
         self._status_threadsafe("Saída OSME: lendo abas CADASTRO, ESTOQUE e FORNECIDOS...")
-        self._log_threadsafe("⏳ Carregando dados da planilha em segundo plano...")
+        self._log_threadsafe(f"⏳ Carregando dados da planilha em segundo plano ({self.caminho_planilha})...")
 
         threading.Thread(target=self._ler_planilha_thread, daemon=True).start()
 
@@ -1242,8 +1550,6 @@ class AbaSaidaOSME:
         self.dados_fornecidos = forn
         self.dados_estoque = est
         self.dados_materiais_cadastro = mats or {}
-        self.dados_fornecidos = forn
-        self.dados_estoque = est
 
         self.btn_recarregar.configure(state="normal", text="🔄 Recarregar Dados")
         self.badge_equipes.configure(text=f"📋 Equipes: {len(cad)}", text_color="#10b981")
@@ -1255,6 +1561,12 @@ class AbaSaidaOSME:
 
         # Revalida equipe caso já tenha algo digitado
         self._consultar_equipe_atual()
+
+        # Revalida seriais automaticamente se houver seriais preenchidos no campo de texto
+        texto_seriais = self.txt_seriais.get("1.0", tk.END).strip()
+        if texto_seriais:
+            self._status("Saída OSME: Planilha atualizada! Revalidando seriais em tela...")
+            self.validar_seriais_acao()
 
     def _erro_leitura(self, erro_msg):
         self.carregando = False
@@ -1533,8 +1845,19 @@ class AbaSaidaOSME:
 
         if itens_bloqueados:
             self._log(f"⚠️ Atenção: {len(itens_bloqueados)} seriais já constam como FORNECIDOS!")
-            ModalAlertaFornecidos(self.parent_frame, itens_bloqueados, self.paletas, self.obter_tema_atual)
+            if getattr(self, "modal_fornecidos_ativo", None):
+                try:
+                    self.modal_fornecidos_ativo.destroy()
+                except Exception:
+                    pass
+            self.modal_fornecidos_ativo = ModalAlertaFornecidos(self.parent_frame, itens_bloqueados, self.paletas, self.obter_tema_atual)
         else:
+            if getattr(self, "modal_fornecidos_ativo", None):
+                try:
+                    self.modal_fornecidos_ativo.destroy()
+                except Exception:
+                    pass
+                self.modal_fornecidos_ativo = None
             self._log(f"✅ Validação concluída: {len(seriais_extraidos)} seriais prontos e agrupados por material!")
 
     def _renderizar_saida(self):
@@ -2316,7 +2639,22 @@ class AbaSaidaOSME:
                 "doc_sap": doc_sap
             }
 
-        # 4. Salva contingência local de segurança
+        # 4. Salva contingência local de segurança e Backup Diário em Excel
+        status_backup_txt = "Gravado na Rede" if atualizado_com_sucesso else "Pendente na Fila"
+        try:
+            ok_bk, arq_bk = gravar_saida_backup_diario(
+                equipe=equipe,
+                doc_sap=doc_sap,
+                data_lcto=data_hoje,
+                itens=itens_processados,
+                status_mestre=status_backup_txt,
+                caminho_mestre=caminho
+            )
+            if ok_bk:
+                self._log_threadsafe(f"🛡️ Backup diário salvo em Documentos: {os.path.basename(arq_bk)}")
+        except Exception as e_bk:
+            self._log_threadsafe(f"Aviso backup diário: {e_bk}")
+
         try:
             pasta_dados = obter_diretorio_dados()
             arq_contingencia = os.path.join(pasta_dados, "contingencia_saidas_osme.json")

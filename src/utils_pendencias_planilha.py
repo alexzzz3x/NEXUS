@@ -409,7 +409,7 @@ def _converter_datetime_helper(data_val):
     return None
 
 
-def tentar_gravar_atualizar_osme(caminho_planilha, itens, col_ordem_idx=7, col_venc_idx=8):
+def tentar_gravar_atualizar_osme(caminho_planilha, itens, col_ordem_idx=7, col_venc_idx=8, col_equipe_idx=4, col_dep_idx=5, col_seg_idx=6, dados_operacao=None):
     """
     Grava atualizações de OSME e vencimento na aba CADASTRO da planilha.
     Suporta Excel aberto via COM ou arquivo fechado via openpyxl.
@@ -417,6 +417,16 @@ def tentar_gravar_atualizar_osme(caminho_planilha, itens, col_ordem_idx=7, col_v
     if not itens:
         return True, "Nenhum item para gravar"
 
+    if dados_operacao:
+        col_equipe_idx = dados_operacao.get("col_equipe_idx", col_equipe_idx)
+        col_dep_idx = dados_operacao.get("col_dep_idx", col_dep_idx)
+        col_seg_idx = dados_operacao.get("col_seg_idx", col_seg_idx)
+        col_ordem_idx = dados_operacao.get("col_ordem_idx", col_ordem_idx)
+        col_venc_idx = dados_operacao.get("col_venc_idx", col_venc_idx)
+
+    col_equipe_1based = col_equipe_idx + 1
+    col_dep_1based = col_dep_idx + 1
+    col_seg_1based = col_seg_idx + 1
     col_ordem_1based = col_ordem_idx + 1
     col_venc_1based = col_venc_idx + 1
 
@@ -456,17 +466,6 @@ def tentar_gravar_atualizar_osme(caminho_planilha, itens, col_ordem_idx=7, col_v
                         break
 
                 if ws_cad is not None:
-                    col_equipe_idx = dados_operacao.get("col_equipe_idx", 4)
-                    col_dep_idx = dados_operacao.get("col_dep_idx", 5)
-                    col_seg_idx = dados_operacao.get("col_seg_idx", 6)
-                    col_ordem_idx = dados_operacao.get("col_ordem_idx", 7)
-                    col_venc_idx = dados_operacao.get("col_venc_idx", 8)
-
-                    col_equipe_1based = col_equipe_idx + 1
-                    col_dep_1based = col_dep_idx + 1
-                    col_seg_1based = col_seg_idx + 1
-                    col_ordem_1based = col_ordem_idx + 1
-                    col_venc_1based = col_venc_idx + 1
                     mapa_linhas_equipes = {}
                     try:
                         max_r = ws_cad.UsedRange.Rows.Count
@@ -482,6 +481,13 @@ def tentar_gravar_atualizar_osme(caminho_planilha, itens, col_ordem_idx=7, col_v
                     for it in itens:
                         norm_it = normalizar_texto(it.get("equipe", ""))
                         r_idx = mapa_linhas_equipes.get(norm_it, it.get("row_idx"))
+                        if not r_idx:
+                            for r_tentativa in range(2, max(300, ws_cad.UsedRange.Rows.Count + 2)):
+                                if normalizar_texto(ws_cad.Cells(r_tentativa, col_equipe_1based).Value) == norm_it:
+                                    r_idx = r_tentativa
+                                    break
+                        if not r_idx:
+                            continue
 
                         # Validação dupla: checa se a célula contém a equipe
                         val_confere = normalizar_texto(ws_cad.Cells(r_idx, col_equipe_1based).Value)
@@ -529,17 +535,6 @@ def tentar_gravar_atualizar_osme(caminho_planilha, itens, col_ordem_idx=7, col_v
             return False, "Aba CADASTRO não encontrada na planilha"
 
         ws_cad = wb["CADASTRO"]
-        col_equipe_idx = dados_operacao.get("col_equipe_idx", 4)
-        col_dep_idx = dados_operacao.get("col_dep_idx", 5)
-        col_seg_idx = dados_operacao.get("col_seg_idx", 6)
-        col_ordem_idx = dados_operacao.get("col_ordem_idx", 7)
-        col_venc_idx = dados_operacao.get("col_venc_idx", 8)
-
-        col_equipe_1based = col_equipe_idx + 1
-        col_dep_1based = col_dep_idx + 1
-        col_seg_1based = col_seg_idx + 1
-        col_ordem_1based = col_ordem_idx + 1
-        col_venc_1based = col_venc_idx + 1
 
         mapa_linhas_equipes = {}
         for r in range(2, ws_cad.max_row + 1):
@@ -552,6 +547,13 @@ def tentar_gravar_atualizar_osme(caminho_planilha, itens, col_ordem_idx=7, col_v
         for it in itens:
             norm_it = normalizar_texto(it.get("equipe", ""))
             r_idx = mapa_linhas_equipes.get(norm_it, it.get("row_idx"))
+            if not r_idx:
+                for r_tentativa in range(2, ws_cad.max_row + 1):
+                    if normalizar_texto(ws_cad.cell(row=r_tentativa, column=col_equipe_1based).value) == norm_it:
+                        r_idx = r_tentativa
+                        break
+            if not r_idx:
+                continue
 
             val_confere = normalizar_texto(ws_cad.cell(row=r_idx, column=col_equipe_1based).value)
             if val_confere != norm_it:
@@ -639,7 +641,8 @@ def processar_todas_pendencias():
                 caminho,
                 dados.get("itens", []),
                 dados.get("col_ordem_idx", 7),
-                dados.get("col_venc_idx", 8)
+                dados.get("col_venc_idx", 8),
+                dados_operacao=dados
             )
             if sucesso:
                 detalhes_sucessos.append(f"Atualizar OSME ({len(dados.get('itens', []))} equipes) via {msg_metodo}")
