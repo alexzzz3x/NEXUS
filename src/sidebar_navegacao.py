@@ -391,17 +391,39 @@ class SidebarNavegacao:
             self._atualizar_layout()
             return
 
+        cats_com_match = set()
+
         for info in self.botoes_info:
             nome = info["nome"].lower()
             cat = info["cat"]
             corresponde = (termo in nome) or (termo in cat.lower()) or (termo in info["tab_id"].lower())
             if corresponde:
                 info["row"].pack(fill="x", padx=4, pady=1)
-                if cat in self.categoria_widgets:
-                    self.categoria_widgets[cat]["itens_frame"].pack(fill="x", padx=2, pady=(0, 2))
-                    self.categoria_widgets[cat]["header"].pack(fill="x", padx=4, pady=(6, 2))
+                cats_com_match.add(cat)
             else:
                 info["row"].pack_forget()
+
+        # Atualiza a visibilidade das seções na ordem correta
+        if "FAVORITOS" in cats_com_match:
+            self.cat_header_fav.pack(fill="x", padx=4, pady=(4, 2))
+            self.frame_fav_itens.pack(fill="x", padx=2, pady=(0, 4))
+            self.divider_fav.pack(fill="x", padx=8, pady=(4, 6))
+        else:
+            self.cat_header_fav.pack_forget()
+            self.frame_fav_itens.pack_forget()
+            self.divider_fav.pack_forget()
+
+        for cat in self.categorias:
+            nome_cat = cat["nome"]
+            cw = self.categoria_widgets.get(nome_cat)
+            if not cw:
+                continue
+            if nome_cat in cats_com_match:
+                cw["header"].pack(fill="x", padx=4, pady=(6, 2))
+                cw["itens_frame"].pack(fill="x", padx=2, pady=(0, 2))
+            else:
+                cw["header"].pack_forget()
+                cw["itens_frame"].pack_forget()
 
     def _focar_busca(self):
         """Atalho de teclado (Ctrl+F) para focar no campo de busca da sidebar."""
@@ -433,6 +455,14 @@ class SidebarNavegacao:
         paleta = self.paletas.get(self.obter_tema_atual(), {})
         bg_container = paleta.get("container", "#111827")
 
+        # 1. Desempacota todos os blocos do scroll para garantir ordem estrita (Header -> Itens)
+        self.cat_header_fav.pack_forget()
+        self.frame_fav_itens.pack_forget()
+        self.divider_fav.pack_forget()
+        for cw in self.categoria_widgets.values():
+            cw["header"].pack_forget()
+            cw["itens_frame"].pack_forget()
+
         if self.expandido:
             self.frame_container.configure(width=self.LARGURA_EXPANDIDA)
             self.btn_toggle.pack_forget()
@@ -444,28 +474,25 @@ class SidebarNavegacao:
             if hasattr(self, "frame_busca"):
                 self.frame_busca.pack(fill="x", padx=6, pady=(0, 4))
 
-            # Cabeçalho de Favoritos
+            # Seção de Favoritos
             self.cat_header_fav.pack(fill="x", padx=4, pady=(4, 2))
             esta_aberto_fav = self.grupos_abertos.get("FAVORITOS", True)
             self.lbl_arrow_fav.configure(text="▾" if esta_aberto_fav else "▸")
             if esta_aberto_fav:
                 self.frame_fav_itens.pack(fill="x", padx=2, pady=(0, 4))
-            else:
-                self.frame_fav_itens.pack_forget()
             self.divider_fav.pack(fill="x", padx=8, pady=(4, 6))
 
-            # Categorias Normais
-            for nome_cat, cw in self.categoria_widgets.items():
-                if nome_cat == "FAVORITOS":
+            # Categorias Normais (na ordem original de self.categorias)
+            for cat in self.categorias:
+                nome_cat = cat["nome"]
+                cw = self.categoria_widgets.get(nome_cat)
+                if not cw:
                     continue
                 cw["header"].pack(fill="x", padx=4, pady=(6, 2))
                 esta_aberto = self.grupos_abertos.get(nome_cat, True)
                 cw["arrow"].configure(text="▾" if esta_aberto else "▸")
-
                 if esta_aberto:
                     cw["itens_frame"].pack(fill="x", padx=2, pady=(0, 2))
-                else:
-                    cw["itens_frame"].pack_forget()
 
             # Botões com texto completo e estrela à direita
             for info in self.botoes_info:
@@ -503,14 +530,14 @@ class SidebarNavegacao:
             self.btn_toggle.configure(text="▶")
 
             # No modo recolhido, cabeçalhos de grupos ficam ocultos
-            self.cat_header_fav.pack_forget()
             self.frame_fav_itens.pack(fill="x", padx=2, pady=1)
             self.divider_fav.pack(fill="x", padx=6, pady=4)
 
-            for nome_cat, cw in self.categoria_widgets.items():
-                if nome_cat != "FAVORITOS":
-                    cw["header"].pack_forget()
-                cw["itens_frame"].pack(fill="x", padx=2, pady=1)
+            for cat in self.categorias:
+                nome_cat = cat["nome"]
+                cw = self.categoria_widgets.get(nome_cat)
+                if cw:
+                    cw["itens_frame"].pack(fill="x", padx=2, pady=1)
 
             # No modo recolhido, centraliza os botoes com apenas o icone
             for info in self.botoes_info:
