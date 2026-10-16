@@ -9,6 +9,7 @@ da transação ZM29 do SAP para os depósitos CL03 e CL04.
 """
 
 import os
+import io
 import re
 import json
 import threading
@@ -482,54 +483,66 @@ class AbaContagemDeposito:
         Gera e salva a planilha no padrão ZM29 com a coluna 'Estoque Livre'.
         Retorna: (caminho_arquivo_gerado, dict_dados_agrupados)
         """
-        wb = openpyxl.load_workbook(caminho_beta, data_only=True, read_only=True)
-        if "ESTOQUE" not in wb.sheetnames:
-            raise RuntimeError("Aba 'ESTOQUE' não encontrada na planilha de seriais selecionada.")
-
-        ws = wb["ESTOQUE"]
-        header_row = next(ws.iter_rows(max_row=1, values_only=True), ())
-        idx_mat, idx_desc, idx_dep, idx_lote, idx_umb = None, None, None, None, None
-
-        for i, col_name in enumerate(header_row):
-            cn = str(col_name or "").strip().upper()
-            if cn in ("MATERIAL", "MAT", "CODIGO", "MATNR") and idx_mat is None:
-                idx_mat = i
-            elif any(k in cn for k in ("DESCRI", "TEXTO", "DENOMINA")) and idx_desc is None:
-                idx_desc = i
-            elif cn in ("DEPOSITO", "DEP", "LGORT") and idx_dep is None:
-                idx_dep = i
-            elif cn in ("LOTE", "LOT", "CHARG") and idx_lote is None:
-                idx_lote = i
-            elif cn in ("UMB", "UNID", "UNIDADE") and idx_umb is None:
-                idx_umb = i
-
-        if idx_mat is None: idx_mat = 1
-        if idx_dep is None: idx_dep = 2
-        if idx_lote is None: idx_lote = 3
+        with open(caminho_beta, "rb") as f_raw:
+            buf = io.BytesIO(f_raw.read())
 
         dados_agrupados = {}  # { cod: {"desc": str, "umb": str, "qtd": int} }
-        for row in ws.iter_rows(min_row=2, values_only=True):
-            if not row:
-                continue
-            dep_val = str(row[idx_dep] or "").strip().upper() if len(row) > idx_dep else ""
-            lote_val = str(row[idx_lote] or "").strip().upper() if len(row) > idx_lote else ""
+        try:
+            wb = openpyxl.load_workbook(buf, data_only=True, read_only=True)
+            if "ESTOQUE" not in wb.sheetnames:
+                raise RuntimeError("Aba 'ESTOQUE' não encontrada na planilha de seriais selecionada.")
 
-            if dep_alvo in dep_val and lote_alvo in lote_val:
-                m_cod = _normalizar_codigo(row[idx_mat]) if len(row) > idx_mat else ""
-                if m_cod:
-                    m_desc = str(row[idx_desc] or "").strip() if idx_desc is not None and len(row) > idx_desc else ""
-                    m_umb = str(row[idx_umb] or "").strip().upper() if idx_umb is not None and len(row) > idx_umb else "UN"
-                    if m_cod in dados_agrupados:
-                        dados_agrupados[m_cod]["qtd"] += 1
-                        if not dados_agrupados[m_cod]["desc"] and m_desc:
-                            dados_agrupados[m_cod]["desc"] = m_desc
-                    else:
-                        dados_agrupados[m_cod] = {
-                            "desc": m_desc,
-                            "umb": m_umb or "UN",
-                            "qtd": 1
-                        }
-        wb.close()
+            ws = wb["ESTOQUE"]
+            header_row = next(ws.iter_rows(max_row=1, values_only=True), ())
+            idx_mat, idx_desc, idx_dep, idx_lote, idx_umb = None, None, None, None, None
+
+            for i, col_name in enumerate(header_row):
+                cn = str(col_name or "").strip().upper()
+                if cn in ("MATERIAL", "MAT", "CODIGO", "MATNR") and idx_mat is None:
+                    idx_mat = i
+                elif any(k in cn for k in ("DESCRI", "TEXTO", "DENOMINA")) and idx_desc is None:
+                    idx_desc = i
+                elif cn in ("DEPOSITO", "DEP", "LGORT") and idx_dep is None:
+                    idx_dep = i
+                elif cn in ("LOTE", "LOT", "CHARG") and idx_lote is None:
+                    idx_lote = i
+                elif cn in ("UMB", "UNID", "UNIDADE") and idx_umb is None:
+                    idx_umb = i
+
+            if idx_mat is None: idx_mat = 1
+            if idx_dep is None: idx_dep = 2
+            if idx_lote is None: idx_lote = 3
+
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                if not row:
+                    continue
+                dep_val = str(row[idx_dep] or "").strip().upper() if len(row) > idx_dep else ""
+                lote_val = str(row[idx_lote] or "").strip().upper() if len(row) > idx_lote else ""
+
+                if dep_alvo in dep_val and lote_alvo in lote_val:
+                    m_cod = _normalizar_codigo(row[idx_mat]) if len(row) > idx_mat else ""
+                    if m_cod:
+                        m_desc = str(row[idx_desc] or "").strip() if idx_desc is not None and len(row) > idx_desc else ""
+                        m_umb = str(row[idx_umb] or "").strip().upper() if idx_umb is not None and len(row) > idx_umb else "UN"
+                        if m_cod in dados_agrupados:
+                            dados_agrupados[m_cod]["qtd"] += 1
+                            if not dados_agrupados[m_cod]["desc"] and m_desc:
+                                dados_agrupados[m_cod]["desc"] = m_desc
+                        else:
+                            dados_agrupados[m_cod] = {
+                                "desc": m_desc,
+                                "umb": m_umb or "UN",
+                                "qtd": 1
+                            }
+        finally:
+            try:
+                wb.close()
+            except Exception:
+                pass
+            try:
+                buf.close()
+            except Exception:
+                pass
 
         if not dados_agrupados:
             raise RuntimeError(f"Nenhum serial/item com Depósito '{dep_alvo}' e Lote '{lote_alvo}' localizado na aba ESTOQUE.")

@@ -1,5 +1,6 @@
 import subprocess
 import os
+import io
 import tempfile
 import csv
 import re
@@ -1096,20 +1097,30 @@ def _buscar_ordem_destino_fallback(equipe):
         if os.path.exists(c):
             try:
                 import openpyxl
-                wb = openpyxl.load_workbook(c, read_only=True, data_only=True)
-                if "CADASTRO" in wb.sheetnames:
-                    ws = wb["CADASTRO"]
-                    # Coluna E (índice 4): Equipes, Coluna H (índice 7): Ordem, Coluna I (índice 8): Vencimento
-                    for row in ws.iter_rows(values_only=True):
-                        if len(row) > 7:
-                            eq = str(row[4] or "").strip().upper()
-                            if eq == equipe_norm:
-                                ordem = str(row[7] or "").strip()
-                                venc = str(row[8] or "").strip() if len(row) > 8 else ""
-                                wb.close()
-                                if ordem and ordem.upper() != "NONE" and ordem != "—":
-                                    return ordem, venc
-                wb.close()
+                with open(c, "rb") as f_raw:
+                    buf = io.BytesIO(f_raw.read())
+                try:
+                    wb = openpyxl.load_workbook(buf, read_only=True, data_only=True)
+                    if "CADASTRO" in wb.sheetnames:
+                        ws = wb["CADASTRO"]
+                        # Coluna E (índice 4): Equipes, Coluna H (índice 7): Ordem, Coluna I (índice 8): Vencimento
+                        for row in ws.iter_rows(values_only=True):
+                            if len(row) > 7:
+                                eq = str(row[4] or "").strip().upper()
+                                if eq == equipe_norm:
+                                    ordem = str(row[7] or "").strip()
+                                    venc = str(row[8] or "").strip() if len(row) > 8 else ""
+                                    if ordem and ordem.upper() != "NONE" and ordem != "—":
+                                        return ordem, venc
+                finally:
+                    try:
+                        wb.close()
+                    except Exception:
+                        pass
+                    try:
+                        buf.close()
+                    except Exception:
+                        pass
             except Exception:
                 pass
     return "", ""

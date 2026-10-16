@@ -482,18 +482,25 @@ class AbaDashboard:
             self.lbl_status_rede.configure(text="🟡 Drive X: Offline", text_color="#f59e0b")
 
     def _carregar_saidas_hoje_async(self):
-        """Carrega o arquivo local de hoje para contar saídas e preencher a timeline."""
+        """Carrega o arquivo local de hoje para contar saídas e preencher a timeline (Zero-Lock via BytesIO)."""
         def _worker():
             caminho_hoje = obter_caminho_backup_diario()
             linhas_hoje = []
             if os.path.exists(caminho_hoje):
                 try:
+                    import io
                     import openpyxl
-                    wb = openpyxl.load_workbook(caminho_hoje, read_only=True, data_only=True)
-                    ws = wb.active
-                    for r in ws.iter_rows(min_row=2, values_only=True):
-                        if any(r):
-                            linhas_hoje.append(r)
+                    with open(caminho_hoje, "rb") as f:
+                        buf = io.BytesIO(f.read())
+                    wb = openpyxl.load_workbook(buf, read_only=True, data_only=True)
+                    try:
+                        ws = wb.active
+                        for r in ws.iter_rows(min_row=2, values_only=True):
+                            if any(r):
+                                linhas_hoje.append(r)
+                    finally:
+                        wb.close()
+                        buf.close()
                 except Exception:
                     pass
 
@@ -504,51 +511,58 @@ class AbaDashboard:
         threading.Thread(target=_worker, daemon=True).start()
 
     def _carregar_radar_osmes_async(self):
-        """Varre a aba CADASTRO em busca de equipes vencidas ou vencendo em 3 dias."""
+        """Varre a aba CADASTRO de forma 100% não-bloqueante (Zero-Lock via BytesIO)."""
         def _worker():
             caminho_mestre = r"X:\obras\Elpa - Almox CR Mauá\CONTROLES\CONTROLE_SERIAIS.vBeta.xlsm"
             criticas = []
             if os.path.exists(caminho_mestre):
                 try:
+                    import io
                     import openpyxl
-                    wb = openpyxl.load_workbook(caminho_mestre, data_only=True, read_only=True)
-                    if "CADASTRO" in wb.sheetnames:
-                        ws = wb["CADASTRO"]
-                        hoje = datetime.now().date()
-                        limite = hoje + timedelta(days=3)
-                        for r in ws.iter_rows(min_row=2, values_only=True):
-                            eq = r[4]
-                            ordem = r[7]
-                            venc = r[8]
-                            if not eq:
-                                continue
-                            d_venc = None
-                            if isinstance(venc, datetime):
-                                d_venc = venc.date()
-                            elif isinstance(venc, str):
-                                try:
-                                    d_venc = datetime.strptime(venc.strip()[:10], "%d/%m/%Y").date()
-                                except Exception:
-                                    pass
-                            if not d_venc:
-                                continue
+                    with open(caminho_mestre, "rb") as f:
+                        buf = io.BytesIO(f.read())
+                    wb = openpyxl.load_workbook(buf, data_only=True, read_only=True)
+                    try:
+                        if "CADASTRO" in wb.sheetnames:
+                            ws = wb["CADASTRO"]
+                            hoje = datetime.now().date()
+                            limite = hoje + timedelta(days=3)
+                            for r in ws.iter_rows(min_row=2, values_only=True):
+                                eq = r[4]
+                                ordem = r[7]
+                                venc = r[8]
+                                if not eq:
+                                    continue
+                                d_venc = None
+                                if isinstance(venc, datetime):
+                                    d_venc = venc.date()
+                                elif isinstance(venc, str):
+                                    try:
+                                        d_venc = datetime.strptime(venc.strip()[:10], "%d/%m/%Y").date()
+                                    except Exception:
+                                        pass
+                                if not d_venc:
+                                    continue
 
-                            if d_venc < hoje:
-                                criticas.append({
-                                    "equipe": str(eq).strip(),
-                                    "ordem": str(ordem or "—").strip(),
-                                    "venc": d_venc.strftime("%d/%m"),
-                                    "status": "Vencida",
-                                    "cor": "#ef4444"
-                                })
-                            elif d_venc <= limite:
-                                criticas.append({
-                                    "equipe": str(eq).strip(),
-                                    "ordem": str(ordem or "—").strip(),
-                                    "venc": d_venc.strftime("%d/%m"),
-                                    "status": "Vence em Breve",
-                                    "cor": "#f59e0b"
-                                })
+                                if d_venc < hoje:
+                                    criticas.append({
+                                        "equipe": str(eq).strip(),
+                                        "ordem": str(ordem or "—").strip(),
+                                        "venc": d_venc.strftime("%d/%m"),
+                                        "status": "Vencida",
+                                        "cor": "#ef4444"
+                                    })
+                                elif d_venc <= limite:
+                                    criticas.append({
+                                        "equipe": str(eq).strip(),
+                                        "ordem": str(ordem or "—").strip(),
+                                        "venc": d_venc.strftime("%d/%m"),
+                                        "status": "Vence em Breve",
+                                        "cor": "#f59e0b"
+                                    })
+                    finally:
+                        wb.close()
+                        buf.close()
                 except Exception:
                     pass
 

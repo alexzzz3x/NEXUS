@@ -14,6 +14,7 @@ Funcionalidades:
 """
 
 import os
+import io
 import re
 import json
 import time
@@ -571,74 +572,85 @@ class AbaAtualizarOSME:
 
     def _ler_planilha_background(self, caminho):
         try:
-            wb = load_workbook(filename=caminho, read_only=True, data_only=True)
-            if "CADASTRO" not in wb.sheetnames:
-                wb.close()
-                self.parent_frame.after(0, lambda: self._erro_leitura_planilha("Aba 'CADASTRO' não encontrada na planilha."))
-                return
-
-            ws = wb["CADASTRO"]
-            idx_eq, idx_dep, idx_seg, idx_ord, idx_venc = None, None, None, None, None
-            cabecalho_row = 1
-
-            for r_num, row_vals in enumerate(ws.iter_rows(max_row=5, values_only=True), start=1):
-                for c_idx, val in enumerate(row_vals):
-                    norm = normalizar_texto(val)
-                    if norm in ("EQUIPE", "EQUIPES", "RECURSO") and idx_eq is None:
-                        idx_eq = c_idx
-                    elif norm in ("DEPOSITO", "DEP", "LGORT") and idx_dep is None:
-                        idx_dep = c_idx
-                    elif norm in ("SEGMENTO", "SEG") and idx_seg is None:
-                        idx_seg = c_idx
-                    elif norm in ("ORDEM", "OSME", "NUM_ORDEM") and idx_ord is None:
-                        idx_ord = c_idx
-                    elif norm in ("VENCIMEN", "VENCIMENTO", "VALIDADE", "DATA_FIM") and idx_venc is None:
-                        idx_venc = c_idx
-                if idx_eq is not None and idx_ord is not None:
-                    cabecalho_row = r_num
-                    break
-
-            # Fallbacks baseados na imagem oficial: E=Equipes (4), F=Depósito (5), G=Segmento (6), H=Ordem (7), I=Vencimento (8)
-            if idx_eq is None: idx_eq = 4
-            if idx_dep is None: idx_dep = 5
-            if idx_seg is None: idx_seg = 6
-            if idx_ord is None: idx_ord = 7
-            if idx_venc is None: idx_venc = 8
-
-            self.col_equipe_idx = idx_eq
-            self.col_dep_idx = idx_dep
-            self.col_seg_idx = idx_seg
-            self.col_ordem_idx = idx_ord
-            self.col_venc_idx = idx_venc
+            with open(caminho, "rb") as f_raw:
+                buf = io.BytesIO(f_raw.read())
 
             equipes_lidas = []
-            for r_idx, row in enumerate(ws.iter_rows(min_row=cabecalho_row + 1, values_only=True), start=cabecalho_row + 1):
-                if not row or len(row) <= idx_eq or not row[idx_eq]:
-                    continue
-                eq_val = str(row[idx_eq]).strip()
-                if not eq_val or eq_val.upper() in ("EQUIPES", "EQUIPE", "TOTAL"):
-                    continue
+            try:
+                wb = load_workbook(filename=buf, read_only=True, data_only=True)
+                if "CADASTRO" not in wb.sheetnames:
+                    self.parent_frame.after(0, lambda: self._erro_leitura_planilha("Aba 'CADASTRO' não encontrada na planilha."))
+                    return
 
-                dep_val = str(row[idx_dep]).strip() if len(row) > idx_dep and row[idx_dep] else "—"
-                seg_val = str(row[idx_seg]).strip() if len(row) > idx_seg and row[idx_seg] else "—"
-                ord_val = str(row[idx_ord]).strip() if len(row) > idx_ord and row[idx_ord] else "—"
-                venc_val = formatar_data_para_exibicao(row[idx_venc] if len(row) > idx_venc and row[idx_venc] else "—")
+                ws = wb["CADASTRO"]
+                idx_eq, idx_dep, idx_seg, idx_ord, idx_venc = None, None, None, None, None
+                cabecalho_row = 1
 
-                equipes_lidas.append({
-                    "row_idx": r_idx,
-                    "equipe": eq_val.upper(),
-                    "deposito": dep_val,
-                    "segmento": seg_val,
-                    "ordem_atual": ord_val,
-                    "venc_atual": venc_val,
-                    "ordem_sap": "",
-                    "venc_sap": "",
-                    "status": "Aguardando varredura",
-                    "tag": ""
-                })
+                for r_num, row_vals in enumerate(ws.iter_rows(max_row=5, values_only=True), start=1):
+                    for c_idx, val in enumerate(row_vals):
+                        norm = normalizar_texto(val)
+                        if norm in ("EQUIPE", "EQUIPES", "RECURSO") and idx_eq is None:
+                            idx_eq = c_idx
+                        elif norm in ("DEPOSITO", "DEP", "LGORT") and idx_dep is None:
+                            idx_dep = c_idx
+                        elif norm in ("SEGMENTO", "SEG") and idx_seg is None:
+                            idx_seg = c_idx
+                        elif norm in ("ORDEM", "OSME", "NUM_ORDEM") and idx_ord is None:
+                            idx_ord = c_idx
+                        elif norm in ("VENCIMEN", "VENCIMENTO", "VALIDADE", "DATA_FIM") and idx_venc is None:
+                            idx_venc = c_idx
+                    if idx_eq is not None and idx_ord is not None:
+                        cabecalho_row = r_num
+                        break
 
-            wb.close()
-            self.parent_frame.after(0, lambda: self._concluir_leitura_planilha(equipes_lidas))
+                # Fallbacks baseados na imagem oficial: E=Equipes (4), F=Depósito (5), G=Segmento (6), H=Ordem (7), I=Vencimento (8)
+                if idx_eq is None: idx_eq = 4
+                if idx_dep is None: idx_dep = 5
+                if idx_seg is None: idx_seg = 6
+                if idx_ord is None: idx_ord = 7
+                if idx_venc is None: idx_venc = 8
+
+                self.col_equipe_idx = idx_eq
+                self.col_dep_idx = idx_dep
+                self.col_seg_idx = idx_seg
+                self.col_ordem_idx = idx_ord
+                self.col_venc_idx = idx_venc
+
+                for r_idx, row in enumerate(ws.iter_rows(min_row=cabecalho_row + 1, values_only=True), start=cabecalho_row + 1):
+                    if not row or len(row) <= idx_eq or not row[idx_eq]:
+                        continue
+                    eq_val = str(row[idx_eq]).strip()
+                    if not eq_val or eq_val.upper() in ("EQUIPES", "EQUIPE", "TOTAL"):
+                        continue
+
+                    dep_val = str(row[idx_dep]).strip() if len(row) > idx_dep and row[idx_dep] else "—"
+                    seg_val = str(row[idx_seg]).strip() if len(row) > idx_seg and row[idx_seg] else "—"
+                    ord_val = str(row[idx_ord]).strip() if len(row) > idx_ord and row[idx_ord] else "—"
+                    venc_val = formatar_data_para_exibicao(row[idx_venc] if len(row) > idx_venc and row[idx_venc] else "—")
+
+                    equipes_lidas.append({
+                        "row_idx": r_idx,
+                        "equipe": eq_val.upper(),
+                        "deposito": dep_val,
+                        "segmento": seg_val,
+                        "ordem_atual": ord_val,
+                        "venc_atual": venc_val,
+                        "ordem_sap": "",
+                        "venc_sap": "",
+                        "status": "Aguardando varredura",
+                        "tag": ""
+                    })
+
+                self.parent_frame.after(0, lambda: self._concluir_leitura_planilha(equipes_lidas))
+            finally:
+                try:
+                    wb.close()
+                except Exception:
+                    pass
+                try:
+                    buf.close()
+                except Exception:
+                    pass
 
         except Exception as e:
             self.parent_frame.after(0, lambda e=e: self._erro_leitura_planilha(str(e)))
@@ -1527,50 +1539,54 @@ Next
             salvo_sucesso = False
             caminho_final = caminho
             try:
-                wb.save(caminho)
-                wb.close()
-                salvo_sucesso = True
-            except PermissionError:
-                wb.close()
-                # Se ocorrer PermissionError no momento da gravação, adiciona à fila de pendências!
-                adicionar_pendencia(
-                    tipo="atualizar_osme",
-                    caminho_planilha=caminho,
-                    dados_operacao={
-                        "itens": [
-                            {
-                                "equipe": it["equipe"],
-                                "row_idx": it["row_idx"],
-                                "ordem_sap": it.get("ordem_sap") or it.get("ordem_atual"),
-                                "venc_sap": it.get("venc_sap") or it.get("venc_atual"),
-                                "deposito": it.get("deposito"),
-                                "segmento": it.get("segmento")
-                            }
-                            for it in itens_para_gravar
-                        ],
-                        "col_equipe_idx": self.col_equipe_idx,
-                        "col_dep_idx": self.col_dep_idx,
-                        "col_seg_idx": self.col_seg_idx,
-                        "col_ordem_idx": self.col_ordem_idx,
-                        "col_venc_idx": self.col_venc_idx
-                    },
-                    motivo="Bloqueio de escrita detectado ao salvar"
-                )
+                try:
+                    wb.save(caminho)
+                    salvo_sucesso = True
+                except PermissionError:
+                    # Se ocorrer PermissionError no momento da gravação, adiciona à fila de pendências!
+                    adicionar_pendencia(
+                        tipo="atualizar_osme",
+                        caminho_planilha=caminho,
+                        dados_operacao={
+                            "itens": [
+                                {
+                                    "equipe": it["equipe"],
+                                    "row_idx": it["row_idx"],
+                                    "ordem_sap": it.get("ordem_sap") or it.get("ordem_atual"),
+                                    "venc_sap": it.get("venc_sap") or it.get("venc_atual"),
+                                    "deposito": it.get("deposito"),
+                                    "segmento": it.get("segmento")
+                                }
+                                for it in itens_para_gravar
+                            ],
+                            "col_equipe_idx": self.col_equipe_idx,
+                            "col_dep_idx": self.col_dep_idx,
+                            "col_seg_idx": self.col_seg_idx,
+                            "col_ordem_idx": self.col_ordem_idx,
+                            "col_venc_idx": self.col_venc_idx
+                        },
+                        motivo="Bloqueio de escrita detectado ao salvar"
+                    )
 
-                for item in itens_para_gravar:
-                    item["status"] = "⏳ Na Fila de Pendências (gravará automaticamente)"
-                    item["tag"] = "pendente"
+                    for item in itens_para_gravar:
+                        item["status"] = "⏳ Na Fila de Pendências (gravará automaticamente)"
+                        item["tag"] = "pendente"
 
-                self._renderizar_tabela()
-                self._atualizar_banner_pendencias()
-                self._log(f"⏳ Bloqueio ao salvar. {len(itens_para_gravar)} equipes adicionadas à Fila de Pendências!")
+                    self._renderizar_tabela()
+                    self._atualizar_banner_pendencias()
+                    self._log(f"⏳ Bloqueio ao salvar. {len(itens_para_gravar)} equipes adicionadas à Fila de Pendências!")
 
-                messagebox.showinfo(
-                    "Adicionado à Fila de Pendências",
-                    f"A planilha foi bloqueada durante a gravação.\n\n"
-                    f"As alterações de {len(itens_para_gravar)} equipes foram adicionadas à Fila de Pendências e serão gravadas automaticamente assim que o Excel for liberado!"
-                )
-                return
+                    messagebox.showinfo(
+                        "Adicionado à Fila de Pendências",
+                        f"A planilha foi bloqueada durante a gravação.\n\n"
+                        f"As alterações de {len(itens_para_gravar)} equipes foram adicionadas à Fila de Pendências e serão gravadas automaticamente assim que o Excel for liberado!"
+                    )
+                    return
+            finally:
+                try:
+                    wb.close()
+                except Exception:
+                    pass
 
             if salvo_sucesso:
                 for item in itens_para_gravar:

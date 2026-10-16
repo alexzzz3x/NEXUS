@@ -1,4 +1,5 @@
 import os
+import io
 import sys
 import threading
 
@@ -818,7 +819,12 @@ def _buscar_lote_chat(lote):
         if not os.path.exists(caminho_planilha):
             return {"erro": f"Planilha de lotes não encontrada em: {caminho_planilha}"}
 
-        df = pd.read_excel(caminho_planilha, sheet_name="ESTOQUE", engine="openpyxl")
+        with open(caminho_planilha, "rb") as f_raw:
+            buf = io.BytesIO(f_raw.read())
+        try:
+            df = pd.read_excel(buf, sheet_name="ESTOQUE", engine="openpyxl")
+        finally:
+            buf.close()
         df.columns = df.columns.str.strip()
         if "LOTE" not in df.columns:
             return {"erro": "Coluna 'LOTE' não encontrada na planilha de estoque."}
@@ -1012,7 +1018,12 @@ def _listar_lotes_chat():
     import pandas as pd
     try:
         caminho = carregar_caminho_planilha_lotes()
-        df = pd.read_excel(caminho, sheet_name="ESTOQUE", engine="openpyxl")
+        with open(caminho, "rb") as f_raw:
+            buf = io.BytesIO(f_raw.read())
+        try:
+            df = pd.read_excel(buf, sheet_name="ESTOQUE", engine="openpyxl")
+        finally:
+            buf.close()
         df.columns = df.columns.str.strip()
         if "LOTE" in df.columns:
             lotes = df["LOTE"].dropna().unique().tolist()

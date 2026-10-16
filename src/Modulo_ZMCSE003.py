@@ -3,6 +3,7 @@
 # Sempre em portugues
 
 import os
+import io
 import threading
 import datetime
 import tkinter as tk
@@ -242,23 +243,34 @@ def listar_recursos_da_planilha(prefixo_equipe, caminho=None):
     if not os.path.exists(plan_path):
         return []
     try:
-        wb = openpyxl.load_workbook(plan_path, read_only=True, data_only=True)
-        ws = wb.active
-        vistos = set()
-        recursos = []
-        primeira = True
-        for linha in ws.iter_rows(values_only=True):
-            if primeira:      # pula cabecalho
-                primeira = False
-                continue
-            val = linha[3]    # coluna D (indice 3)
-            if val is not None:
-                v = str(val).strip()
-                if v.upper().startswith(prefixo_equipe.upper()) and v not in vistos:
-                    vistos.add(v)
-                    recursos.append(v)
-        wb.close()
-        return sorted(recursos)
+        with open(plan_path, "rb") as f_raw:
+            buf = io.BytesIO(f_raw.read())
+        try:
+            wb = openpyxl.load_workbook(buf, read_only=True, data_only=True)
+            ws = wb.active
+            vistos = set()
+            recursos = []
+            primeira = True
+            for linha in ws.iter_rows(values_only=True):
+                if primeira:      # pula cabecalho
+                    primeira = False
+                    continue
+                val = linha[3]    # coluna D (indice 3)
+                if val is not None:
+                    v = str(val).strip()
+                    if v.upper().startswith(prefixo_equipe.upper()) and v not in vistos:
+                        vistos.add(v)
+                        recursos.append(v)
+            return sorted(recursos)
+        finally:
+            try:
+                wb.close()
+            except Exception:
+                pass
+            try:
+                buf.close()
+            except Exception:
+                pass
     except Exception:
         return []
 
@@ -303,21 +315,32 @@ def processar_zm02(data_str, equipe, base, recurso,
             "ou selecione o arquivo manualmente."
         )
 
-    log(f"Abrindo planilha em modo somente leitura: {plan_path}")
+    log(f"Abrindo planilha em modo somente leitura (Zero-Lock): {plan_path}")
     import openpyxl
-    wb = openpyxl.load_workbook(plan_path, read_only=True, data_only=True)
+    with open(plan_path, "rb") as f_raw:
+        buf = io.BytesIO(f_raw.read())
+    try:
+        wb = openpyxl.load_workbook(buf, read_only=True, data_only=True)
 
-    ABA_ALVO = "RETE"
-    if ABA_ALVO in wb.sheetnames:
-        ws = wb[ABA_ALVO]
-        log(f"Aba selecionada: '{ABA_ALVO}'")
-    else:
-        ws = wb.active
-        log(f"Aba '{ABA_ALVO}' nao encontrada — usando aba ativa: '{ws.title}'")
-        log(f"Abas disponiveis: {wb.sheetnames}")
+        ABA_ALVO = "RETE"
+        if ABA_ALVO in wb.sheetnames:
+            ws = wb[ABA_ALVO]
+            log(f"Aba selecionada: '{ABA_ALVO}'")
+        else:
+            ws = wb.active
+            log(f"Aba '{ABA_ALVO}' nao encontrada — usando aba ativa: '{ws.title}'")
+            log(f"Abas disponiveis: {wb.sheetnames}")
 
-    linhas = list(ws.values)
-    wb.close()
+        linhas = list(ws.values)
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+        try:
+            buf.close()
+        except Exception:
+            pass
 
     import datetime as _dt
 
@@ -462,13 +485,24 @@ def processar_zm02_varredura(data_inicio_str, data_fim_str,
     if equipe_filtro:
         log(f" Filtro de Equipe: {equipe_filtro}")
     log(f"============================================================")
-    log(f"Lendo planilha em modo somente leitura: {plan_path}")
+    log(f"Lendo planilha em modo somente leitura (Zero-Lock): {plan_path}")
 
     import openpyxl
-    wb = openpyxl.load_workbook(plan_path, read_only=True, data_only=True)
-    ws = wb["RETE"] if "RETE" in wb.sheetnames else wb.active
-    linhas = list(ws.values)
-    wb.close()
+    with open(plan_path, "rb") as f_raw:
+        buf = io.BytesIO(f_raw.read())
+    try:
+        wb = openpyxl.load_workbook(buf, read_only=True, data_only=True)
+        ws = wb["RETE"] if "RETE" in wb.sheetnames else wb.active
+        linhas = list(ws.values)
+    finally:
+        try:
+            wb.close()
+        except Exception:
+            pass
+        try:
+            buf.close()
+        except Exception:
+            pass
 
     if not linhas or len(linhas) < 2:
         raise ValueError("A planilha esta vazia ou sem dados alem do cabecalho.")

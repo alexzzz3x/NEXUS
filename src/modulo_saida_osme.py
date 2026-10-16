@@ -1355,174 +1355,179 @@ class AbaSaidaOSME:
 
     def _ler_planilha_thread(self):
         try:
+            import io
+            with open(self.caminho_planilha, "rb") as f_raw:
+                stream_planilha = io.BytesIO(f_raw.read())
+
             wb = load_workbook(
-                self.caminho_planilha,
+                stream_planilha,
                 read_only=True,
                 data_only=True,
                 keep_vba=self.caminho_planilha.lower().endswith(".xlsm")
             )
+            try:
+                # 1. Leitura da Aba CADASTRO (Equipes/OSME e Materiais Cadastrados)
+                cadastro_lido = {}
+                materiais_lidos = {}
+                if "CADASTRO" in wb.sheetnames:
+                    ws_cad = wb["CADASTRO"]
+                    cabecalho = None
+                    idx_equipe, idx_ordem, idx_dep, idx_seg, idx_venc = None, None, None, None, None
+                    idx_mat, idx_desc, idx_und = None, None, None
 
-            # 1. Leitura da Aba CADASTRO (Equipes/OSME e Materiais Cadastrados)
-            cadastro_lido = {}
-            materiais_lidos = {}
-            if "CADASTRO" in wb.sheetnames:
-                ws_cad = wb["CADASTRO"]
-                cabecalho = None
-                idx_equipe, idx_ordem, idx_dep, idx_seg, idx_venc = None, None, None, None, None
-                idx_mat, idx_desc, idx_und = None, None, None
+                    for r_num, row in enumerate(ws_cad.iter_rows(max_row=10, values_only=True), 1):
+                        for c_idx, val in enumerate(row):
+                            norm = normalizar_texto(val)
+                            if norm in self.ALIASES_CADASTRO_EQUIPE and idx_equipe is None:
+                                idx_equipe = c_idx
+                            elif norm in self.ALIASES_CADASTRO_ORDEM and idx_ordem is None:
+                                idx_ordem = c_idx
+                            elif norm in self.ALIASES_CADASTRO_DEP and idx_dep is None:
+                                idx_dep = c_idx
+                            elif norm in self.ALIASES_CADASTRO_SEG and idx_seg is None:
+                                idx_seg = c_idx
+                            elif norm in self.ALIASES_CADASTRO_VENC and idx_venc is None:
+                                idx_venc = c_idx
+                            elif norm in self.ALIASES_CADASTRO_MAT and idx_mat is None:
+                                idx_mat = c_idx
+                            elif norm in self.ALIASES_CADASTRO_DESC and idx_desc is None:
+                                idx_desc = c_idx
+                            elif norm in self.ALIASES_CADASTRO_UND and idx_und is None:
+                                idx_und = c_idx
 
-                for r_num, row in enumerate(ws_cad.iter_rows(max_row=10, values_only=True), 1):
-                    for c_idx, val in enumerate(row):
+                        if idx_equipe is not None and idx_ordem is not None:
+                            cabecalho = r_num
+                            break
+
+                    if idx_equipe is None: idx_equipe = 4
+                    if idx_dep is None: idx_dep = 5
+                    if idx_seg is None: idx_seg = 6
+                    if idx_ordem is None: idx_ordem = 7
+                    if idx_venc is None: idx_venc = 8
+                    if idx_mat is None: idx_mat = 10
+                    if idx_desc is None: idx_desc = 11
+                    if idx_und is None: idx_und = 12
+                    if cabecalho is None: cabecalho = 1
+
+                    for row in ws_cad.iter_rows(min_row=cabecalho + 1, values_only=True):
+                        if not row:
+                            continue
+                        # Leitura de Equipes
+                        if len(row) > idx_equipe and row[idx_equipe]:
+                            eq_val = row[idx_equipe]
+                            eq_norm = normalizar_texto(eq_val)
+                            ordem_val = row[idx_ordem] if len(row) > idx_ordem else ""
+                            dep_val = row[idx_dep] if len(row) > idx_dep else ""
+                            seg_val = row[idx_seg] if len(row) > idx_seg else ""
+                            venc_val = row[idx_venc] if len(row) > idx_venc else ""
+
+                            if eq_norm:
+                                cadastro_lido[eq_norm] = {
+                                    "equipe_orig": str(eq_val).strip(),
+                                    "ordem": str(ordem_val or "").strip(),
+                                    "deposito": str(dep_val or "").strip(),
+                                    "segmento": str(seg_val or "").strip(),
+                                    "vencimento": formatar_data_excel(venc_val)
+                                }
+
+                        # Leitura de Materiais Cadastrados (colunas K, L, M)
+                        if len(row) > idx_mat and row[idx_mat]:
+                            mat_raw = row[idx_mat]
+                            m_norm = normalizar_texto(mat_raw)
+                            if m_norm:
+                                d_val = str(row[idx_desc] or "").strip() if len(row) > idx_desc else ""
+                                u_val = str(row[idx_und] or "").strip() if len(row) > idx_und else "UN"
+                                materiais_lidos[m_norm] = {
+                                    "codigo": str(mat_raw).strip(),
+                                    "descricao": d_val,
+                                    "unidade": u_val
+                                }
+
+                # 2. Leitura da Aba FORNECIDOS (com detecção inteligente de cabeçalhos)
+                fornecidos_lidos = {}
+                if "FORNECIDOS" in wb.sheetnames:
+                    ws_forn = wb["FORNECIDOS"]
+                    idx_f_ser, idx_f_mat, idx_f_dep, idx_f_eq, idx_f_dt, idx_f_doc = None, None, None, None, None, None
+                    for c_idx, val in enumerate(next(ws_forn.iter_rows(max_row=1, values_only=True), ())):
                         norm = normalizar_texto(val)
-                        if norm in self.ALIASES_CADASTRO_EQUIPE and idx_equipe is None:
-                            idx_equipe = c_idx
-                        elif norm in self.ALIASES_CADASTRO_ORDEM and idx_ordem is None:
-                            idx_ordem = c_idx
-                        elif norm in self.ALIASES_CADASTRO_DEP and idx_dep is None:
-                            idx_dep = c_idx
-                        elif norm in self.ALIASES_CADASTRO_SEG and idx_seg is None:
-                            idx_seg = c_idx
-                        elif norm in self.ALIASES_CADASTRO_VENC and idx_venc is None:
-                            idx_venc = c_idx
-                        elif norm in self.ALIASES_CADASTRO_MAT and idx_mat is None:
-                            idx_mat = c_idx
-                        elif norm in self.ALIASES_CADASTRO_DESC and idx_desc is None:
-                            idx_desc = c_idx
-                        elif norm in self.ALIASES_CADASTRO_UND and idx_und is None:
-                            idx_und = c_idx
+                        if norm in ("SERIE", "SERIAL", "SERNR", "NUMEROSERIE") and idx_f_ser is None:
+                            idx_f_ser = c_idx
+                        elif norm in ("MATERIAL", "MAT", "MATNR", "CODIGO") and idx_f_mat is None:
+                            idx_f_mat = c_idx
+                        elif norm in ("DEPOSITO", "DEP", "LGORT") and idx_f_dep is None:
+                            idx_f_dep = c_idx
+                        elif norm in ("EQUIPE", "RECURSO") and idx_f_eq is None:
+                            idx_f_eq = c_idx
+                        elif norm in ("DATA", "DATADOC", "DATE") and idx_f_dt is None:
+                            idx_f_dt = c_idx
+                        elif norm in ("DOCSAP", "DOC", "DOCUMENTO", "NUMDOC") and idx_f_doc is None:
+                            idx_f_doc = c_idx
 
-                    if idx_equipe is not None and idx_ordem is not None:
-                        cabecalho = r_num
-                        break
+                    if idx_f_ser is None: idx_f_ser = 0
+                    if idx_f_mat is None: idx_f_mat = 1
+                    if idx_f_dep is None: idx_f_dep = 2
+                    if idx_f_eq is None: idx_f_eq = 3
+                    if idx_f_dt is None: idx_f_dt = 4
+                    if idx_f_doc is None: idx_f_doc = 5
 
-                if idx_equipe is None: idx_equipe = 4
-                if idx_dep is None: idx_dep = 5
-                if idx_seg is None: idx_seg = 6
-                if idx_ordem is None: idx_ordem = 7
-                if idx_venc is None: idx_venc = 8
-                if idx_mat is None: idx_mat = 10
-                if idx_desc is None: idx_desc = 11
-                if idx_und is None: idx_und = 12
-                if cabecalho is None: cabecalho = 1
+                    for row in ws_forn.iter_rows(min_row=2, values_only=True):
+                        if not row or len(row) <= idx_f_ser or not row[idx_f_ser]:
+                            continue
+                        serial_val = str(row[idx_f_ser]).strip()
+                        s_norm = normalizar_texto(serial_val)
+                        if not s_norm:
+                            continue
+                        mat_val = row[idx_f_mat] if len(row) > idx_f_mat else ""
+                        dep_val = row[idx_f_dep] if len(row) > idx_f_dep else ""
+                        eq_val = row[idx_f_eq] if len(row) > idx_f_eq else ""
+                        data_val = row[idx_f_dt] if len(row) > idx_f_dt else ""
+                        doc_val = row[idx_f_doc] if len(row) > idx_f_doc else ""
 
-                for row in ws_cad.iter_rows(min_row=cabecalho + 1, values_only=True):
-                    if not row:
-                        continue
-                    # Leitura de Equipes
-                    if len(row) > idx_equipe and row[idx_equipe]:
-                        eq_val = row[idx_equipe]
-                        eq_norm = normalizar_texto(eq_val)
-                        ordem_val = row[idx_ordem] if len(row) > idx_ordem else ""
-                        dep_val = row[idx_dep] if len(row) > idx_dep else ""
-                        seg_val = row[idx_seg] if len(row) > idx_seg else ""
-                        venc_val = row[idx_venc] if len(row) > idx_venc else ""
+                        fornecidos_lidos[s_norm] = {
+                            "serial": serial_val,
+                            "material": str(mat_val or "").strip(),
+                            "deposito": str(dep_val or "").strip(),
+                            "equipe": str(eq_val or "").strip(),
+                            "data": formatar_data_excel(data_val),
+                            "doc_sap": str(doc_val or "").strip()
+                        }
 
-                        if eq_norm:
-                            cadastro_lido[eq_norm] = {
-                                "equipe_orig": str(eq_val).strip(),
-                                "ordem": str(ordem_val or "").strip(),
-                                "deposito": str(dep_val or "").strip(),
-                                "segmento": str(seg_val or "").strip(),
-                                "vencimento": formatar_data_excel(venc_val)
-                            }
+                # 3. Leitura da Aba ESTOQUE (com detecção inteligente de cabeçalhos)
+                estoque_lido = {}
+                if "ESTOQUE" in wb.sheetnames:
+                    ws_est = wb["ESTOQUE"]
+                    idx_est_ser, idx_est_mat, idx_est_dep = None, None, None
+                    for c_idx, val in enumerate(next(ws_est.iter_rows(max_row=1, values_only=True), ())):
+                        norm = normalizar_texto(val)
+                        if norm in ("SERIE", "SERIAL", "SERNR", "NUMEROSERIE") and idx_est_ser is None:
+                            idx_est_ser = c_idx
+                        elif norm in ("MATERIAL", "MAT", "MATNR", "CODIGO") and idx_est_mat is None:
+                            idx_est_mat = c_idx
+                        elif norm in ("DEPOSITO", "DEP", "LGORT") and idx_est_dep is None:
+                            idx_est_dep = c_idx
 
-                    # Leitura de Materiais Cadastrados (colunas K, L, M)
-                    if len(row) > idx_mat and row[idx_mat]:
-                        mat_raw = row[idx_mat]
-                        m_norm = normalizar_texto(mat_raw)
-                        if m_norm:
-                            d_val = str(row[idx_desc] or "").strip() if len(row) > idx_desc else ""
-                            u_val = str(row[idx_und] or "").strip() if len(row) > idx_und else "UN"
-                            materiais_lidos[m_norm] = {
-                                "codigo": str(mat_raw).strip(),
-                                "descricao": d_val,
-                                "unidade": u_val
-                            }
+                    if idx_est_ser is None: idx_est_ser = 0
+                    if idx_est_mat is None: idx_est_mat = 1
+                    if idx_est_dep is None: idx_est_dep = 2
 
-            # 2. Leitura da Aba FORNECIDOS (com detecção inteligente de cabeçalhos)
-            fornecidos_lidos = {}
-            if "FORNECIDOS" in wb.sheetnames:
-                ws_forn = wb["FORNECIDOS"]
-                idx_f_ser, idx_f_mat, idx_f_dep, idx_f_eq, idx_f_dt, idx_f_doc = None, None, None, None, None, None
-                for c_idx, val in enumerate(next(ws_forn.iter_rows(max_row=1, values_only=True), ())):
-                    norm = normalizar_texto(val)
-                    if norm in ("SERIE", "SERIAL", "SERNR", "NUMEROSERIE") and idx_f_ser is None:
-                        idx_f_ser = c_idx
-                    elif norm in ("MATERIAL", "MAT", "MATNR", "CODIGO") and idx_f_mat is None:
-                        idx_f_mat = c_idx
-                    elif norm in ("DEPOSITO", "DEP", "LGORT") and idx_f_dep is None:
-                        idx_f_dep = c_idx
-                    elif norm in ("EQUIPE", "RECURSO") and idx_f_eq is None:
-                        idx_f_eq = c_idx
-                    elif norm in ("DATA", "DATADOC", "DATE") and idx_f_dt is None:
-                        idx_f_dt = c_idx
-                    elif norm in ("DOCSAP", "DOC", "DOCUMENTO", "NUMDOC") and idx_f_doc is None:
-                        idx_f_doc = c_idx
+                    for row in ws_est.iter_rows(min_row=2, values_only=True):
+                        if not row or len(row) <= idx_est_ser or not row[idx_est_ser]:
+                            continue
+                        serial_val = str(row[idx_est_ser]).strip()
+                        s_norm = normalizar_texto(serial_val)
+                        if not s_norm:
+                            continue
+                        mat_val = row[idx_est_mat] if len(row) > idx_est_mat else ""
+                        dep_val = row[idx_est_dep] if len(row) > idx_est_dep else ""
 
-                if idx_f_ser is None: idx_f_ser = 0
-                if idx_f_mat is None: idx_f_mat = 1
-                if idx_f_dep is None: idx_f_dep = 2
-                if idx_f_eq is None: idx_f_eq = 3
-                if idx_f_dt is None: idx_f_dt = 4
-                if idx_f_doc is None: idx_f_doc = 5
-
-                for row in ws_forn.iter_rows(min_row=2, values_only=True):
-                    if not row or len(row) <= idx_f_ser or not row[idx_f_ser]:
-                        continue
-                    serial_val = str(row[idx_f_ser]).strip()
-                    s_norm = normalizar_texto(serial_val)
-                    if not s_norm:
-                        continue
-                    mat_val = row[idx_f_mat] if len(row) > idx_f_mat else ""
-                    dep_val = row[idx_f_dep] if len(row) > idx_f_dep else ""
-                    eq_val = row[idx_f_eq] if len(row) > idx_f_eq else ""
-                    data_val = row[idx_f_dt] if len(row) > idx_f_dt else ""
-                    doc_val = row[idx_f_doc] if len(row) > idx_f_doc else ""
-
-                    fornecidos_lidos[s_norm] = {
-                        "serial": serial_val,
-                        "material": str(mat_val or "").strip(),
-                        "deposito": str(dep_val or "").strip(),
-                        "equipe": str(eq_val or "").strip(),
-                        "data": formatar_data_excel(data_val),
-                        "doc_sap": str(doc_val or "").strip()
-                    }
-
-            # 3. Leitura da Aba ESTOQUE (com detecção inteligente de cabeçalhos)
-            estoque_lido = {}
-            if "ESTOQUE" in wb.sheetnames:
-                ws_est = wb["ESTOQUE"]
-                idx_est_ser, idx_est_mat, idx_est_dep = None, None, None
-                for c_idx, val in enumerate(next(ws_est.iter_rows(max_row=1, values_only=True), ())):
-                    norm = normalizar_texto(val)
-                    if norm in ("SERIE", "SERIAL", "SERNR", "NUMEROSERIE") and idx_est_ser is None:
-                        idx_est_ser = c_idx
-                    elif norm in ("MATERIAL", "MAT", "MATNR", "CODIGO") and idx_est_mat is None:
-                        idx_est_mat = c_idx
-                    elif norm in ("DEPOSITO", "DEP", "LGORT") and idx_est_dep is None:
-                        idx_est_dep = c_idx
-
-                if idx_est_ser is None: idx_est_ser = 0
-                if idx_est_mat is None: idx_est_mat = 1
-                if idx_est_dep is None: idx_est_dep = 2
-
-                for row in ws_est.iter_rows(min_row=2, values_only=True):
-                    if not row or len(row) <= idx_est_ser or not row[idx_est_ser]:
-                        continue
-                    serial_val = str(row[idx_est_ser]).strip()
-                    s_norm = normalizar_texto(serial_val)
-                    if not s_norm:
-                        continue
-                    mat_val = row[idx_est_mat] if len(row) > idx_est_mat else ""
-                    dep_val = row[idx_est_dep] if len(row) > idx_est_dep else ""
-
-                    estoque_lido[s_norm] = {
-                        "serial": serial_val,
-                        "material": str(mat_val or "").strip(),
-                        "deposito": str(dep_val or "").strip()
-                    }
-
-            wb.close()
+                        estoque_lido[s_norm] = {
+                            "serial": serial_val,
+                            "material": str(mat_val or "").strip(),
+                            "deposito": str(dep_val or "").strip()
+                        }
+            finally:
+                wb.close()
+                stream_planilha.close()
 
             import time
             for _ in range(50):
@@ -2553,6 +2558,7 @@ class AbaSaidaOSME:
 
         # 2. Se não estava aberto via COM, utiliza openpyxl
         if not atualizado_com_sucesso:
+            wb = None
             try:
                 wb = load_workbook(caminho, keep_vba=caminho.lower().endswith(".xlsm"))
 
@@ -2587,11 +2593,16 @@ class AbaSaidaOSME:
                             pass
 
                 wb.save(caminho)
-                wb.close()
                 atualizado_com_sucesso = True
                 metodo_usado = "openpyxl (Arquivo Fechado)"
             except Exception as e_openpyxl:
                 self._log_threadsafe(f"❌ Erro ao atualizar planilha diretamente: {e_openpyxl}")
+            finally:
+                if wb is not None:
+                    try:
+                        wb.close()
+                    except Exception:
+                        pass
 
         # Se não foi atualizado com sucesso (planilha em uso na rede ou aberta em Somente Leitura)
         if not atualizado_com_sucesso:

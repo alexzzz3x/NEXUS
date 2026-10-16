@@ -9,6 +9,7 @@ Garante redundância 100% local, imune a bloqueios de rede, concorrência e perd
 """
 
 import os
+import io
 import re
 from datetime import datetime
 from openpyxl import Workbook, load_workbook
@@ -264,21 +265,31 @@ def comparar_backup_com_mestre(caminho_mestre, data_dt=None):
                 "mensagem": "Nenhuma saída de serial registrada no backup diário de hoje."
             }
 
-        # 2. Carrega seriais já gravados na aba FORNECIDOS da planilha mestre
-        wb_mestre = load_workbook(caminho_mestre, read_only=True, data_only=True)
-        if "FORNECIDOS" not in wb_mestre.sheetnames:
-            wb_mestre.close()
-            return {
-                "sucesso": False,
-                "erro": "Aba 'FORNECIDOS' não encontrada na planilha mestre."
-            }
+        # 2. Carrega seriais já gravados na aba FORNECIDOS da planilha mestre (Zero-Lock)
+        with open(caminho_mestre, "rb") as f_raw:
+            buf_mestre = io.BytesIO(f_raw.read())
+        try:
+            wb_mestre = load_workbook(buf_mestre, read_only=True, data_only=True)
+            if "FORNECIDOS" not in wb_mestre.sheetnames:
+                return {
+                    "sucesso": False,
+                    "erro": "Aba 'FORNECIDOS' não encontrada na planilha mestre."
+                }
 
-        ws_forn = wb_mestre["FORNECIDOS"]
-        seriais_mestre_set = set()
-        for row in ws_forn.iter_rows(min_row=2, values_only=True):
-            if row and row[0]:
-                seriais_mestre_set.add(normalizar_texto(row[0]))
-        wb_mestre.close()
+            ws_forn = wb_mestre["FORNECIDOS"]
+            seriais_mestre_set = set()
+            for row in ws_forn.iter_rows(min_row=2, values_only=True):
+                if row and row[0]:
+                    seriais_mestre_set.add(normalizar_texto(row[0]))
+        finally:
+            try:
+                wb_mestre.close()
+            except Exception:
+                pass
+            try:
+                buf_mestre.close()
+            except Exception:
+                pass
 
         # 3. Cruzamento
         confirmados = []

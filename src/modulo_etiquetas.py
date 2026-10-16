@@ -1,4 +1,5 @@
 import os
+import io
 import sys
 import json
 import subprocess
@@ -157,7 +158,12 @@ class AbaEtiquetas:
                 self.parent_frame.after(0, lambda: messagebox.showerror("Planilha não encontrada", f"Não encontrei a planilha de lotes neste caminho:\n{caminho_planilha}\n\nClique no botão ... ao lado de Buscar Lote para selecionar o novo arquivo."))
                 return
 
-            df = pd.read_excel(caminho_planilha, sheet_name="ESTOQUE", engine="openpyxl")
+            with open(caminho_planilha, "rb") as f_raw:
+                buf = io.BytesIO(f_raw.read())
+            try:
+                df = pd.read_excel(buf, sheet_name="ESTOQUE", engine="openpyxl")
+            finally:
+                buf.close()
             df.columns = df.columns.str.strip()
             if "LOTE" not in df.columns:
                 self.parent_frame.after(0, lambda: messagebox.showerror("Erro", "Coluna 'LOTE' não encontrada na planilha."))

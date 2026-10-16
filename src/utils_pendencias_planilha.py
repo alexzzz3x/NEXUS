@@ -203,6 +203,7 @@ def tentar_gravar_saida_osme(caminho_planilha, equipe, doc_sap, data_hoje, itens
     if not is_file_writable(caminho_planilha):
         return False, "Arquivo bloqueado para gravação (em uso por outro usuário)"
 
+    wb = None
     try:
         wb = load_workbook(caminho_planilha, keep_vba=caminho_planilha.lower().endswith(".xlsm"))
 
@@ -235,12 +236,17 @@ def tentar_gravar_saida_osme(caminho_planilha, equipe, doc_sap, data_hoje, itens
                     pass
 
         wb.save(caminho_planilha)
-        wb.close()
         return True, "openpyxl (Arquivo Direto)"
     except PermissionError:
         return False, "Permissão negada ao salvar (outro usuário está com o arquivo aberto)"
     except Exception as e:
         return False, f"Erro ao gravar planilha: {e}"
+    finally:
+        if wb is not None:
+            try:
+                wb.close()
+            except Exception:
+                pass
 
 
 def tentar_gravar_transferencia(caminho_planilha, eq_dest, dep_dest, doc_z61, data_hoje, itens):
@@ -312,6 +318,7 @@ def tentar_gravar_transferencia(caminho_planilha, eq_dest, dep_dest, doc_z61, da
     if not is_file_writable(caminho_planilha):
         return False, "Arquivo bloqueado para gravação (em uso por outro usuário)"
 
+    wb = None
     try:
         wb = load_workbook(caminho_planilha, keep_vba=caminho_planilha.lower().endswith(".xlsm"))
         if "FORNECIDOS" in wb.sheetnames:
@@ -349,12 +356,17 @@ def tentar_gravar_transferencia(caminho_planilha, eq_dest, dep_dest, doc_z61, da
                     pass
 
         wb.save(caminho_planilha)
-        wb.close()
         return True, "openpyxl (Arquivo Direto)"
     except PermissionError:
         return False, "Permissão negada ao salvar (outro usuário está com o arquivo aberto)"
     except Exception as e:
         return False, f"Erro ao gravar planilha: {e}"
+    finally:
+        if wb is not None:
+            try:
+                wb.close()
+            except Exception:
+                pass
 
 
 def _is_data_valida_helper(data_str):
@@ -529,6 +541,7 @@ def tentar_gravar_atualizar_osme(caminho_planilha, itens, col_ordem_idx=7, col_v
     if not is_file_writable(caminho_planilha):
         return False, "Arquivo bloqueado para gravação (em uso por outro usuário)"
 
+    wb = None
     try:
         wb = load_workbook(caminho_planilha, keep_vba=caminho_planilha.lower().endswith(".xlsm"))
         if "CADASTRO" not in wb.sheetnames:
@@ -580,12 +593,17 @@ def tentar_gravar_atualizar_osme(caminho_planilha, itens, col_ordem_idx=7, col_v
                 c_v.number_format = "dd/mm/yyyy"
 
         wb.save(caminho_planilha)
-        wb.close()
         return True, "openpyxl (Arquivo Direto)"
     except PermissionError:
         return False, "Permissão negada ao salvar (outro usuário está com o arquivo aberto)"
     except Exception as e:
         return False, f"Erro ao gravar planilha: {e}"
+    finally:
+        if wb is not None:
+            try:
+                wb.close()
+            except Exception:
+                pass
 
 
 def processar_todas_pendencias():
