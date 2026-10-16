@@ -68,7 +68,7 @@ class SidebarNavegacao:
     Substitui a barra horizontal de abas, agrupando módulos em categorias lógicas,
     com suporte a Favoritos (⭐), persistência segura em AppData e transição 100% estável.
     """
-    LARGURA_EXPANDIDA = 230
+    LARGURA_EXPANDIDA = 240
     LARGURA_RECOLHIDA = 68
 
     def __init__(self, parent, notebook, categorias, paletas, obter_tema_atual, on_tab_changed=None, use_grid=True):
@@ -80,7 +80,10 @@ class SidebarNavegacao:
         self.on_tab_changed = on_tab_changed
         self.use_grid = use_grid
 
-        self.expandido = True
+        # Começa compacto no modo Gaveta Flutuante (Flyout)
+        self.expandido = False
+        self.fixado = False
+        self.animando = False
         self.aba_selecionada = None
         self.tooltip = TooltipFlutuante()
 
@@ -100,23 +103,38 @@ class SidebarNavegacao:
         self.botoes_info = []
         self.categoria_widgets = {}
 
-        # Container lateral fixo
-        self.frame_container = ctk.CTkFrame(self.parent, width=self.LARGURA_EXPANDIDA, corner_radius=0)
-        self.frame_container.pack_propagate(False)
-        self.frame_container.grid_propagate(False)
-
+        # 1. Base invisível na grade: reserva 68px na coluna 0 para a tela da direita NUNCA se mover
         if self.use_grid:
-            self.frame_container.grid(row=0, column=0, sticky="nsew")
+            self.frame_base = ctk.CTkFrame(self.parent, width=self.LARGURA_RECOLHIDA, corner_radius=0, fg_color="transparent")
+            self.frame_base.pack_propagate(False)
+            self.frame_base.grid_propagate(False)
+            self.frame_base.grid(row=0, column=0, sticky="nsew")
+
+            # 2. Container da Gaveta Flutuante (posicionado com place e lift para flutuar suavemente)
+            self.frame_container = ctk.CTkFrame(
+                self.parent,
+                width=self.LARGURA_RECOLHIDA,
+                corner_radius=0,
+                border_width=1,
+                border_color="#1e293b"
+            )
+            self.frame_container.pack_propagate(False)
+            self.frame_container.grid_propagate(False)
+            self.frame_container.place(x=0, y=0, relheight=1.0)
+            self.frame_container.lift()
         else:
+            self.frame_container = ctk.CTkFrame(self.parent, width=self.LARGURA_RECOLHIDA, corner_radius=0)
+            self.frame_container.pack_propagate(False)
+            self.frame_container.grid_propagate(False)
             self.frame_container.pack(side="left", fill="y")
 
-        # Topo da sidebar com botão toggle indicativo (◀/▶)
+        # Topo da sidebar com botão toggle indicativo (◀/▶) e botão Fixar/Desafixar (📌)
         self.frame_topo = ctk.CTkFrame(self.frame_container, height=44, corner_radius=0, fg_color="transparent")
         self.frame_topo.pack(fill="x", padx=4, pady=(6, 2))
 
         self.btn_toggle = ctk.CTkButton(
             self.frame_topo,
-            text="◀",
+            text="▶",
             width=34,
             height=32,
             font=("Segoe UI", 13, "bold"),
@@ -132,7 +150,26 @@ class SidebarNavegacao:
             text="NAVEGAÇÃO",
             font=("Segoe UI", 11, "bold")
         )
-        self.lbl_menu_title.pack(side="left", fill="x", expand=True, pady=4)
+
+        self.btn_pin = ctk.CTkButton(
+            self.frame_topo,
+            text="📍",
+            width=28,
+            height=28,
+            font=("Segoe UI", 12),
+            corner_radius=6,
+            fg_color="transparent",
+            text_color="#64748b",
+            command=self.toggle_pin
+        )
+        self.btn_pin.bind("<Enter>", lambda e: self.tooltip.exibir(self.btn_pin, "Desafixar menu (Gaveta flutuante)" if self.fixado else "Fixar menu aberto", self.paletas.get(self.obter_tema_atual(), {})))
+        self.btn_pin.bind("<Leave>", lambda e: self.tooltip.ocultar())
+
+        # Fechar gaveta ao clicar na área de trabalho se estiver flutuando
+        try:
+            self.parent.bind("<Button-1>", self._on_parent_click, add="+")
+        except Exception:
+            pass
 
         # Barra de Busca Rápida (Filtro instantâneo no topo)
         self.frame_busca = ctk.CTkFrame(self.frame_container, height=32, corner_radius=6, fg_color="transparent")
@@ -428,7 +465,7 @@ class SidebarNavegacao:
     def _focar_busca(self):
         """Atalho de teclado (Ctrl+F) para focar no campo de busca da sidebar."""
         if not self.expandido:
-            self.alternar_expansao()
+            self.alternar_expansao(animar=True)
         try:
             self.entry_busca.focus_set()
         except Exception:
@@ -442,18 +479,77 @@ class SidebarNavegacao:
         self._atualizar_layout()
 
     # ---------------------------------------------------------
-    # Alternância de Expansão (Instantânea, Estável e Sem Lag)
+    # Gaveta Flutuante (Flyout Overlay) & Animação Suave
     # ---------------------------------------------------------
-    def alternar_expansao(self):
-        """Alterna instantaneamente entre os modos Expandido (230px) e Recolhido (68px)."""
+    def _on_parent_click(self, event):
+        """Fecha a gaveta flutuante se o usuário clicar na área de trabalho."""
+        if not self.fixado and self.expandido and not self.animando:
+            try:
+                if event.x > self.frame_container.winfo_width():
+                    self.alternar_expansao(animar=True)
+            except Exception:
+                pass
+
+    def toggle_pin(self):
+        """Alterna entre modo Gaveta Flutuante (Flyout) e Modo Fixo (Docked)."""
+        self.fixado = not self.fixado
+        paleta = self.paletas.get(self.obter_tema_atual(), {})
+        accent = paleta.get("accent", "#00d2ff")
+
+        if self.fixado:
+            self.btn_pin.configure(text="📌", text_color=accent)
+            if self.expandido and self.use_grid and hasattr(self, "frame_base"):
+                self.frame_base.configure(width=self.LARGURA_EXPANDIDA)
+        else:
+            self.btn_pin.configure(text="📍", text_color="#64748b")
+            if self.use_grid and hasattr(self, "frame_base"):
+                self.frame_base.configure(width=self.LARGURA_RECOLHIDA)
+
+    def _animar_largura(self, alvo):
+        """Interpolação de largura suave (Ease-Out) para a gaveta flutuante."""
+        self.animando = True
+        try:
+            atual = self.frame_container.winfo_width()
+        except Exception:
+            self.animando = False
+            return
+
+        diff = alvo - atual
+        if abs(diff) <= 2:
+            self.frame_container.configure(width=alvo)
+            self.animando = False
+            return
+
+        step = int(diff * 0.45)
+        if step == 0:
+            step = 2 if diff > 0 else -2
+        nova = atual + step
+        self.frame_container.configure(width=nova)
+        self.parent.after(14, lambda: self._animar_largura(alvo))
+
+    def alternar_expansao(self, animar=True):
+        """Alterna suavemente entre os modos Expandido (240px) e Recolhido (68px)."""
+        if self.animando:
+            return
         self.tooltip.ocultar()
         self.expandido = not self.expandido
+
+        alvo = self.LARGURA_EXPANDIDA if self.expandido else self.LARGURA_RECOLHIDA
+
+        if self.fixado and self.use_grid and hasattr(self, "frame_base"):
+            self.frame_base.configure(width=alvo)
+
         self._atualizar_layout()
+        if animar:
+            self._animar_largura(alvo)
+        else:
+            self.frame_container.configure(width=alvo)
 
     def _atualizar_layout(self):
         """Ajusta dimensões, textos e disposição dos componentes conforme o estado."""
         paleta = self.paletas.get(self.obter_tema_atual(), {})
         bg_container = paleta.get("container", "#111827")
+        accent = paleta.get("accent", "#00d2ff")
 
         # 1. Desempacota todos os blocos do scroll para garantir ordem estrita (Header -> Itens)
         self.cat_header_fav.pack_forget()
@@ -464,11 +560,16 @@ class SidebarNavegacao:
             cw["itens_frame"].pack_forget()
 
         if self.expandido:
-            self.frame_container.configure(width=self.LARGURA_EXPANDIDA)
+            self.frame_container.configure(border_color=accent)
             self.btn_toggle.pack_forget()
             self.lbl_menu_title.pack_forget()
+            if hasattr(self, "btn_pin"):
+                self.btn_pin.pack_forget()
+
             self.btn_toggle.pack(side="left", padx=(6, 8), pady=4)
             self.lbl_menu_title.pack(side="left", fill="x", expand=True, pady=4)
+            if hasattr(self, "btn_pin"):
+                self.btn_pin.pack(side="right", padx=(0, 6), pady=4)
             self.btn_toggle.configure(text="◀")
 
             if hasattr(self, "frame_busca"):
@@ -520,8 +621,10 @@ class SidebarNavegacao:
                     btn_fav.pack(side="right", padx=(0, 2))
 
         else:
-            self.frame_container.configure(width=self.LARGURA_RECOLHIDA)
+            self.frame_container.configure(border_color=bg_container)
             self.lbl_menu_title.pack_forget()
+            if hasattr(self, "btn_pin"):
+                self.btn_pin.pack_forget()
             if hasattr(self, "frame_busca"):
                 self.frame_busca.pack_forget()
 
@@ -593,6 +696,10 @@ class SidebarNavegacao:
         if self.on_tab_changed:
             self.on_tab_changed(tab_id)
 
+        # No modo Gaveta Flutuante (não fixado): fecha suavemente ao escolher o módulo
+        if not self.fixado and self.expandido and not self.animando:
+            self.alternar_expansao(animar=True)
+
     def _atualizar_destaque_botoes(self):
         """Aplica o destaque visual no item ativo em todas as suas ocorrências."""
         paleta = self.paletas.get(self.obter_tema_atual(), {})
@@ -627,15 +734,26 @@ class SidebarNavegacao:
         bg_container = paleta.get("container", "#111827")
         fg_texto = paleta.get("texto", "#f8fafc")
         accent = paleta.get("accent", "#00d2ff")
+        hover = paleta.get("hover", "#0284c7")
         inp = paleta.get("input", "#1a2436")
         subtle = paleta.get("scrollbar_hover", "#38bdf8")
 
-        self.frame_container.configure(fg_color=bg_container)
+        self.frame_container.configure(
+            fg_color=bg_container,
+            border_color=accent if self.expandido else bg_container
+        )
         self.frame_topo.configure(fg_color=bg_container)
         self.scroll.configure(fg_color=bg_container)
 
         self.btn_toggle.configure(fg_color=inp, hover_color=accent, text_color=fg_texto)
         self.lbl_menu_title.configure(text_color=accent)
+
+        if hasattr(self, "btn_pin"):
+            self.btn_pin.configure(
+                fg_color=accent if self.fixado else "transparent",
+                text_color="#ffffff" if self.fixado else "#64748b",
+                hover_color=hover if self.fixado else inp
+            )
 
         for nome_cat, cw in self.categoria_widgets.items():
             cw["arrow"].configure(text_color=accent)
