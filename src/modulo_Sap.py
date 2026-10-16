@@ -63,6 +63,25 @@ def abortar_automacao_sap():
     _sap_ocupado = False
 
 
+def capturar_tela_sap_erro(modulo_origem="automacao_sap"):
+    """
+    Captura automaticamente um print da tela quando ocorre erro no SAP e salva em:
+    Documentos/NEXUS_Logs/erros_sap/erro_YYYY-MM-DD_HHhMMmSSs.png.
+    Retorna o caminho do arquivo gerado ou None.
+    """
+    try:
+        from PIL import ImageGrab
+        pasta_logs = os.path.join(os.path.expanduser("~"), "Documents", "NEXUS_Logs", "erros_sap")
+        os.makedirs(pasta_logs, exist_ok=True)
+        ts = time.strftime("%Y-%m-%d_%Hh%Mm%Ss")
+        caminho_print = os.path.join(pasta_logs, f"erro_{modulo_origem}_{ts}.png")
+        img = ImageGrab.grab()
+        img.save(caminho_print)
+        return caminho_print
+    except Exception:
+        return None
+
+
 def obter_caminho_saplogon():
     candidatos = [
         r"C:\Program Files\SAP\FrontEnd\SAPgui\saplogon.exe",

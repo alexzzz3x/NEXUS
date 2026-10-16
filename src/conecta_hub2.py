@@ -237,6 +237,13 @@ def aplicar_tema(tema_nome):
             text_color="#090d16" if "Light" not in tema_nome else "#ffffff"
         )
 
+    if 'btn_spotlight' in globals() and btn_spotlight:
+        btn_spotlight.configure(
+            fg_color=c.get("input", "#1e293b"),
+            hover_color=c.get("container", "#334155"),
+            text_color=c.get("texto", "#94a3b8")
+        )
+
     if etiquetas_view: etiquetas_view.aplicar_tema(tema_nome)
     if sap_view: sap_view.aplicar_tema(tema_nome)
     if bandeirada_view: bandeirada_view.aplicar_tema(tema_nome)
@@ -366,6 +373,61 @@ btn_ver_atualizacao = ctk.CTkButton(
     command=lambda: checar_atualizacao_manual(root, PALETAS, obter_tema_atual)
 )
 btn_ver_atualizacao.pack(side=tk.RIGHT, padx=(0, 6), pady=15)
+
+def abrir_spotlight(event=None):
+    try:
+        from utils_spotlight import SpotlightModal
+        pal = PALETAS.get(obter_tema_atual(), {})
+        SpotlightModal.abrir(
+            root,
+            paleta=pal,
+            on_navigate=lambda tab: sidebar_navegacao.selecionar_aba(tab, trocar_notebook=True) if sidebar_navegacao else None,
+            on_exec_acao=executar_acao_spotlight
+        )
+    except Exception as e:
+        log_error(f"Erro ao abrir Spotlight: {e}")
+
+def executar_acao_spotlight(tipo, valor):
+    try:
+        if tipo == "saida_eq":
+            sidebar_navegacao.selecionar_aba(tab_name_saida_osme, trocar_notebook=True)
+            if saida_osme_view and hasattr(saida_osme_view, "carregar_equipe_automatica"):
+                saida_osme_view.carregar_equipe_automatica(valor)
+        elif tipo == "contagem_eq":
+            sidebar_navegacao.selecionar_aba(tab_name_contagem_carro, trocar_notebook=True)
+            if contagem_carro_view and hasattr(contagem_carro_view, "definir_equipe"):
+                contagem_carro_view.definir_equipe(valor)
+        elif tipo == "bandeirada_eq":
+            sidebar_navegacao.selecionar_aba(tab_name_bandeirada, trocar_notebook=True)
+            if bandeirada_view and hasattr(bandeirada_view, "definir_equipes"):
+                bandeirada_view.definir_equipes([valor])
+        elif tipo == "iq09_serial":
+            sidebar_navegacao.selecionar_aba(tab_name_extrator, trocar_notebook=True)
+            if extrator_view and hasattr(extrator_view, "pesquisar_iq09_direto"):
+                extrator_view.pesquisar_iq09_direto(valor)
+        elif tipo == "saida_serial":
+            sidebar_navegacao.selecionar_aba(tab_name_saida_osme, trocar_notebook=True)
+            if saida_osme_view and hasattr(saida_osme_view, "adicionar_serial_direto"):
+                saida_osme_view.adicionar_serial_direto(valor)
+    except Exception as e:
+        log_error(f"Erro na ação do Spotlight: {e}")
+
+btn_spotlight = ctk.CTkButton(
+    frame_topo,
+    text="🔍 Busca (Ctrl+K)",
+    font=("Segoe UI", 11),
+    width=130,
+    height=28,
+    corner_radius=6,
+    fg_color="#1e293b",
+    hover_color="#334155",
+    text_color="#94a3b8",
+    command=abrir_spotlight
+)
+btn_spotlight.pack(side=tk.RIGHT, padx=(0, 6), pady=15)
+
+root.bind("<Control-k>", abrir_spotlight)
+root.bind("<Control-K>", abrir_spotlight)
 
 # STATUS BAR
 bar_status = ctk.CTkFrame(root, height=30, corner_radius=0)
@@ -568,7 +630,12 @@ def inicializar_modulos():
         splash_progress.set(0.15)
         lbl_splash_loading.configure(text="Carregando Painel Principal...")
         try:
-            dashboard_view = construir_aba_dashboard(tab_home, PALETAS, obter_tema_atual)
+            dashboard_view = construir_aba_dashboard(
+                tab_home,
+                PALETAS,
+                obter_tema_atual,
+                on_navigate=lambda tab: sidebar_navegacao.selecionar_aba(tab, trocar_notebook=True) if sidebar_navegacao else None
+            )
         except Exception as e:
             log_error(f"Erro ao carregar Dashboard: {e}")
         root.after(10, etapa_2)
