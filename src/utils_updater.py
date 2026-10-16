@@ -25,7 +25,7 @@ import customtkinter as ctk
 
 import urllib.request
 
-VERSAO_ATUAL = "2.2.7"
+VERSAO_ATUAL = "2.2.8"
 
 # 1. Endereço online no GitHub (prioridade máxima — funciona de qualquer lugar)
 URL_VERSAO_GITHUB = "https://raw.githubusercontent.com/Alexzzzx2/NEXUS/main/versao.json"
@@ -78,6 +78,186 @@ def verificar_atualizacao_disponivel():
         pass
 
     return False, None
+
+
+def obter_dados_versao_local_ou_remota():
+    """Retorna os dados completos da versão e notas de lançamento (online, rede ou local)."""
+    # 1. Fallback na Rede Local (Drive X:)
+    try:
+        if os.path.exists(ARQUIVO_VERSAO_REDE):
+            with open(ARQUIVO_VERSAO_REDE, "r", encoding="utf-8") as f:
+                return json.load(f)
+    except Exception:
+        pass
+
+    # 2. Tentativa Online via GitHub
+    try:
+        req = urllib.request.Request(
+            URL_VERSAO_GITHUB,
+            headers={"User-Agent": "NEXUS-Desktop-Updater"}
+        )
+        with urllib.request.urlopen(req, timeout=3.0) as resp:
+            if resp.status == 200:
+                return json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        pass
+
+    # 3. Fallback no arquivo local versao.json
+    try:
+        from utils_os import obter_caminho_recurso, obter_diretorio_executavel
+        candidatos = [
+            os.path.join(obter_diretorio_executavel(), "versao.json"),
+            obter_caminho_recurso("versao.json"),
+            "versao.json"
+        ]
+        for c in candidatos:
+            if os.path.exists(c):
+                with open(c, "r", encoding="utf-8") as f:
+                    return json.load(f)
+    except Exception:
+        pass
+
+    return {
+        "versao": VERSAO_ATUAL,
+        "notas": "Melhorias gerais e correções de estabilidade."
+    }
+
+
+class ModalNovidades(ctk.CTkToplevel):
+    """Pop-up modal moderno com as notas de versão e novidades do N.E.X.U.S."""
+    
+    def __init__(self, parent, dados_versao, paletas=None, obter_tema_atual=None):
+        super().__init__(parent)
+        self.dados_versao = dados_versao or {}
+        self.paletas = paletas or {}
+        self.obter_tema_atual = obter_tema_atual or (lambda: "Nexus")
+        
+        self.title("📢 O que há de novo — N.E.X.U.S")
+        self.geometry("560x520")
+        self.minsize(500, 460)
+        self.resizable(False, False)
+        self.attributes("-topmost", True)
+        
+        # Centraliza na tela
+        try:
+            self.update_idletasks()
+            sw = self.winfo_screenwidth()
+            sh = self.winfo_screenheight()
+            x = int((sw - 560) / 2)
+            y = int((sh - 520) / 2)
+            self.geometry(f"+{x}+{y}")
+        except Exception:
+            pass
+
+        self._construir_ui()
+
+    def _construir_ui(self):
+        tema = self.obter_tema_atual()
+        paleta = self.paletas.get(tema, {
+            "bg": "#090d16", "container": "#111827", "texto": "#f8fafc",
+            "accent": "#00d2ff", "hover": "#0284c7", "input": "#1a2436"
+        })
+        
+        self.configure(fg_color=paleta.get("bg", "#090d16"))
+
+        # 1. Cabeçalho
+        f_top = ctk.CTkFrame(self, fg_color=paleta.get("container", "#111827"), height=65, corner_radius=0)
+        f_top.pack(fill="x", side="top")
+        f_top.pack_propagate(False)
+
+        lbl_tit = ctk.CTkLabel(
+            f_top,
+            text="📢 O QUE HÁ DE NOVO NO N.E.X.U.S",
+            font=("Segoe UI", 16, "bold"),
+            text_color=paleta.get("accent", "#00d2ff")
+        )
+        lbl_tit.pack(side="left", padx=20, pady=18)
+
+        # 2. Rodapé / Botões
+        f_botoes = ctk.CTkFrame(self, fg_color="transparent")
+        f_botoes.pack(fill="x", side="bottom", padx=20, pady=(0, 18))
+
+        self.btn_fechar = ctk.CTkButton(
+            f_botoes,
+            text="Entendido / Fechar",
+            font=("Segoe UI", 12, "bold"),
+            fg_color=paleta.get("accent", "#00d2ff"),
+            hover_color=paleta.get("hover", "#0284c7"),
+            text_color="#090d16",
+            height=38,
+            command=self.destroy
+        )
+        self.btn_fechar.pack(side="right")
+
+        self.btn_checar = ctk.CTkButton(
+            f_botoes,
+            text="🔄 Checar Atualizações",
+            font=("Segoe UI", 11),
+            fg_color=paleta.get("input", "#1a2436"),
+            hover_color=paleta.get("container", "#111827"),
+            text_color="#94a3b8",
+            height=38,
+            command=self._rechecar_atualizacoes
+        )
+        self.btn_checar.pack(side="left")
+
+        # 3. Corpo Central
+        f_corpo = ctk.CTkFrame(self, fg_color="transparent")
+        f_corpo.pack(fill="both", expand=True, padx=20, pady=(12, 10))
+
+        versao_exibida = self.dados_versao.get("versao", VERSAO_ATUAL)
+        data_versao = self.dados_versao.get("data", "")
+        notas = self.dados_versao.get("notas", "Melhorias gerais e correções de estabilidade.")
+
+        f_chips = ctk.CTkFrame(f_corpo, fg_color=paleta.get("container", "#111827"), corner_radius=8)
+        f_chips.pack(fill="x", pady=(0, 10))
+
+        lbl_ver = ctk.CTkLabel(
+            f_chips,
+            text=f"✅ Você está utilizando a versão mais recente: v{versao_exibida}",
+            font=("Segoe UI", 13, "bold"),
+            text_color="#10b981"
+        )
+        lbl_ver.pack(padx=14, pady=(8, 2), anchor="w")
+
+        if data_versao:
+            lbl_dt = ctk.CTkLabel(
+                f_chips,
+                text=f"Lançada em: {data_versao}",
+                font=("Segoe UI", 10),
+                text_color="#94a3b8"
+            )
+            lbl_dt.pack(padx=14, pady=(0, 8), anchor="w")
+
+        lbl_not_tit = ctk.CTkLabel(
+            f_corpo,
+            text="📝 Histórico de Mudanças e Novas Funcionalidades:",
+            font=("Segoe UI", 11, "bold"),
+            text_color=paleta.get("texto", "#f8fafc")
+        )
+        lbl_not_tit.pack(anchor="w", pady=(0, 4))
+
+        txt_notas = ctk.CTkTextbox(
+            f_corpo,
+            fg_color=paleta.get("container", "#111827"),
+            font=("Segoe UI", 11),
+            corner_radius=8
+        )
+        txt_notas.pack(fill="both", expand=True, pady=(0, 4))
+        txt_notas.insert("1.0", notas)
+        txt_notas.configure(state="disabled")
+
+    def _rechecar_atualizacoes(self):
+        self.btn_checar.configure(state="disabled", text="Verificando...")
+        def _task():
+            tem_nova, dados = verificar_atualizacao_disponivel()
+            if tem_nova and dados:
+                self.after(0, self.destroy)
+                self.after(50, lambda: ModalAtualizacao(self.master, dados, self.paletas, self.obter_tema_atual))
+            else:
+                self.after(0, lambda: self.btn_checar.configure(state="normal", text="✅ Já Atualizado!"))
+                self.after(2000, lambda: self.btn_checar.configure(text="🔄 Checar Atualizações"))
+        threading.Thread(target=_task, daemon=True).start()
 
 
 class ModalAtualizacao(ctk.CTkToplevel):
@@ -383,15 +563,22 @@ def iniciar_checagem_atualizacao(root, paletas=None, obter_tema_atual=None):
 
 
 def checar_atualizacao_manual(root, paletas=None, obter_tema_atual=None):
-    """Disparado quando o usuário clica em 'Verificar Atualizações' no menu/sidebar."""
+    """Disparado quando o usuário clica em 'Verificar Atualizações' ou no badge de versão."""
     def _verificar():
         tem_nova, dados = verificar_atualizacao_disponivel()
         if tem_nova and dados:
             root.after(0, lambda: ModalAtualizacao(root, dados, paletas, obter_tema_atual))
         else:
-            root.after(0, lambda: messagebox.showinfo(
-                "N.E.X.U.S Atualizado",
-                f"Você já está utilizando a versão mais recente do N.E.X.U.S (v{VERSAO_ATUAL})."
-            ))
+            dados_atuais = obter_dados_versao_local_ou_remota()
+            root.after(0, lambda: ModalNovidades(root, dados_atuais, paletas, obter_tema_atual))
             
     threading.Thread(target=_verificar, daemon=True).start()
+
+
+def exibir_novidades(root, paletas=None, obter_tema_atual=None):
+    """Abre diretamente a janela de 'O que há de novo' com as notas da versão."""
+    def _run():
+        dados = obter_dados_versao_local_ou_remota()
+        root.after(0, lambda: ModalNovidades(root, dados, paletas, obter_tema_atual))
+    threading.Thread(target=_run, daemon=True).start()
+

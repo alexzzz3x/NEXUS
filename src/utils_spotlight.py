@@ -194,6 +194,7 @@ class SpotlightModal:
         if not termo:
             # Sugestões rápidas
             acoes.extend([
+                {"icone": "📢", "titulo": "O que há de novo?", "subtitulo": "Notas de versão e novas funcionalidades do sistema", "tag": "Novidades", "comando": ("novidades", None)},
                 {"icone": "📤", "titulo": "Nova Saída OSME", "subtitulo": "Lançamento de medidores e materiais no SAP MIGO Z61", "tag": "Módulo", "comando": ("nav", "📤 Saída OSME")},
                 {"icone": "🚗", "titulo": "Contagem de Carro", "subtitulo": "Balanço físico e auditoria de veículos no SAP ZMMCSE001", "tag": "Módulo", "comando": ("nav", "🚗 Contagem de Carro")},
                 {"icone": "🔄", "titulo": "Atualizar OSME", "subtitulo": "Varredura na IW39 e renovação de ordens vencidas", "tag": "Módulo", "comando": ("nav", "🔄 Atualizar OSME")},
@@ -251,6 +252,17 @@ class SpotlightModal:
                         "comando": ("nav", tab_nome)
                     })
 
+        # 4. Busca por Novidades / Changelog
+        termos_novidades = ["NOVIDADE", "NOVO", "ATT", "VERSAO", "VERSÃO", "UPDATE", "PATCH", "CHANGELOG", "O QUE"]
+        if any(tn in termo for tn in termos_novidades):
+            acoes.insert(0, {
+                "icone": "📢",
+                "titulo": "O que há de novo no N.E.X.U.S",
+                "subtitulo": "Consulta as últimas notas de versão e novas funcionalidades",
+                "tag": "Novidades",
+                "comando": ("novidades", None)
+            })
+
         return acoes
 
     def _mover_selecao(self, delta):
@@ -286,6 +298,12 @@ class SpotlightModal:
         if tipo == "nav":
             if self.on_navigate:
                 self.on_navigate(valor)
+        elif tipo == "novidades":
+            try:
+                from utils_updater import exibir_novidades
+                exibir_novidades(self.root, self.paleta)
+            except Exception as e:
+                print(f"[Spotlight] Erro ao abrir novidades: {e}")
         elif tipo in ("saida_eq", "contagem_eq", "bandeirada_eq", "iq09_serial", "saida_serial"):
             if self.on_exec_acao:
                 self.on_exec_acao(tipo, valor)

@@ -391,13 +391,24 @@ class AbaDashboard:
         self.btn_act_fechamento = ctk.CTkButton(
             f_act_inner,
             text="📋 Fechamento Dia",
-            width=140,
+            width=135,
             height=34,
             font=("Segoe UI", 11, "bold"),
             corner_radius=6,
             command=self._abrir_modal_fechamento
         )
         self.btn_act_fechamento.pack(side="left", padx=3)
+
+        self.btn_act_novidades = ctk.CTkButton(
+            f_act_inner,
+            text="📢 O que há de novo",
+            width=145,
+            height=34,
+            font=("Segoe UI", 11, "bold"),
+            corner_radius=6,
+            command=self._abrir_novidades
+        )
+        self.btn_act_novidades.pack(side="left", padx=3)
 
         self.btn_recarregar = ctk.CTkButton(
             f_act_inner,
@@ -681,6 +692,14 @@ class AbaDashboard:
             except Exception as e:
                 print(f"[Dashboard] Erro na navegação: {e}")
 
+    def _abrir_novidades(self):
+        """Abre a janela de novidades com as notas de versão do N.E.X.U.S."""
+        try:
+            from utils_updater import exibir_novidades
+            exibir_novidades(self.parent_frame.winfo_toplevel(), self.paletas, self.obter_tema_atual)
+        except Exception as e:
+            print(f"[Dashboard] Erro ao abrir novidades: {e}")
+
     def _abrir_modal_fechamento(self):
         """Abre modal com resumo executivo do dia e botão de copiar para WhatsApp."""
         c = self._cores(self.obter_tema_atual())
@@ -826,6 +845,8 @@ class AbaDashboard:
         self.btn_act_iq09.configure(fg_color=accent, hover_color=hover, text_color="#090d16")
         self.btn_act_carro.configure(fg_color=accent, hover_color=hover, text_color="#090d16")
         self.btn_act_fechamento.configure(fg_color=accent, hover_color=hover, text_color="#090d16")
+        if hasattr(self, "btn_act_novidades"):
+            self.btn_act_novidades.configure(fg_color=container, hover_color=hover, text_color=accent)
         self.btn_recarregar.configure(fg_color=hover, hover_color=accent, text_color="#f8fafc")
 
 
