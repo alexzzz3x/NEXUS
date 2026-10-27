@@ -70,12 +70,14 @@ class AbaExtrairOSME:
         self.card_hist.configure(fg_color=container)
 
         estilo = ttk.Style()
+        if "clam" in estilo.theme_names():
+            estilo.theme_use("clam")
         estilo.configure(
             "HistoricoOSME.Treeview",
             background=container,
             foreground=texto,
             fieldbackground=inp,
-            bordercolor=container,
+            borderwidth=0,
             rowheight=26,
             relief="flat"
         )
@@ -83,12 +85,19 @@ class AbaExtrairOSME:
             "HistoricoOSME.Treeview.Heading",
             background=inp,
             foreground=accent,
-            font=("Segoe UI", 9, "bold")
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            borderwidth=1
         )
         estilo.map(
             "HistoricoOSME.Treeview",
             background=[("selected", accent)],
             foreground=[("selected", "white")]
+        )
+        estilo.map(
+            "HistoricoOSME.Treeview.Heading",
+            background=[("active", hover)],
+            foreground=[("active", "white")]
         )
 
     # ---------------------------------------------------------

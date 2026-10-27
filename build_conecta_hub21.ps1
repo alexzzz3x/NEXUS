@@ -8,42 +8,19 @@ Stop-Process -Name "N.E.X.U.S" -Force -ErrorAction SilentlyContinue
 Start-Sleep -Milliseconds 800
 
 # Copia para Desktop e pasta NEXUS local
-Copy-Item -Path "dist\N.E.X.U.S.exe" -Destination "$HOME\Desktop\N.E.X.U.S.exe" -Force
-if (Test-Path "$HOME\Desktop\NEXUS") {
-    Copy-Item -Path "dist\N.E.X.U.S.exe" -Destination "$HOME\Desktop\NEXUS\N.E.X.U.S.exe" -Force
-}
-Write-Host "N.E.X.U.S.exe gerado localmente com sucesso!" -ForegroundColor Green
-
-# Publicacao automatica e compactacao na rede via Python (suporte nativo a acentos e caminhos de rede)
-py -c "
-import os, zipfile, json, datetime
-
-exe_path = r'dist\N.E.X.U.S.exe'
-pasta_rede = r'X:\obras\Elpa - Almox CR Mauá\ANDERSON'
-
-if os.path.exists(pasta_rede) and os.path.exists(exe_path):
-    print('Compactando NEXUS.zip para publicacao na rede...')
-    zip_dest = os.path.join(pasta_rede, 'NEXUS.zip')
-    with zipfile.ZipFile(zip_dest, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=6) as zf:
-        zf.write(exe_path, arcname='N.E.X.U.S.exe')
-    
-    versao_dest = os.path.join(pasta_rede, 'versao.json')
-    dados_versao = {
-        'versao': '1.0.0',
-        'data': datetime.datetime.now().strftime('%d/%m/%Y %H:%M'),
-        'arquivo_zip': 'NEXUS.zip',
-        'notas': 'N.E.X.U.S v1.0 — Versao Oficial de Lancamento.'
+if (Test-Path "dist\N.E.X.U.S.exe") {
+    $desktops = @([Environment]::GetFolderPath('Desktop'), "$HOME\Desktop", "$env:USERPROFILE\OneDrive\Área de Trabalho", "$env:USERPROFILE\OneDrive\Desktop") | Where-Object { $_ -and (Test-Path $_) } | Select-Object -Unique
+    foreach ($d in $desktops) {
+        Copy-Item -Path "dist\N.E.X.U.S.exe" -Destination (Join-Path $d "N.E.X.U.S.exe") -Force
     }
-    if os.path.exists('versao.json'):
-        try:
-            with open('versao.json', 'r', encoding='utf-8') as vf:
-                dados_versao = json.load(vf)
-                dados_versao['data'] = datetime.datetime.now().strftime('%d/%m/%Y %H:%M')
-        except Exception:
-            pass
-    with open(versao_dest, 'w', encoding='utf-8') as f:
-        json.dump(dados_versao, f, indent=2, ensure_ascii=False)
-    print('Publicado com sucesso em: ' + pasta_rede)
-else:
-    print('Pasta da rede nao encontrada ou exe ausente.')
-"
+    if (Test-Path "$HOME\Desktop\NEXUS") {
+        Copy-Item -Path "dist\N.E.X.U.S.exe" -Destination "$HOME\Desktop\NEXUS\N.E.X.U.S.exe" -Force
+    }
+    Write-Host "N.E.X.U.S.exe gerado e copiado para a Área de Trabalho com sucesso!" -ForegroundColor Green
+} else {
+    Write-Host "Erro: dist\N.E.X.U.S.exe não foi encontrado após o build." -ForegroundColor Red
+}
+
+# Publicação automática e compactação na rede via Python (suporte nativo a acentos e caminhos de rede)
+py scripts\publicar_rede.py
+

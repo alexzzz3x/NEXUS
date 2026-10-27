@@ -1191,7 +1191,8 @@ class AbaContagemDeposito:
         hdr_bg = c["container"]
         hdr_fg = c["texto"]
 
-        style.theme_use("default")
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
         style.configure(
             "Deposito.Treeview",
             background=tv_bg,

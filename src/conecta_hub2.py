@@ -184,6 +184,12 @@ def aplicar_tema(tema_nome):
     root.configure(fg_color=c["bg"])
     salvar_tema_atual(tema_nome)
 
+    try:
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+    except Exception:
+        pass
+
     # Legacy styling for modules that haven't been refactored yet
     scrollbar = c.get("scrollbar", c["input"])
     scrollbar_hover = c.get("scrollbar_hover", c["accent"])
@@ -201,6 +207,37 @@ def aplicar_tema(tema_nome):
     style.map("TRadiobutton", background=[("active", c["bg"])], foreground=[("disabled", c["scrollbar"]), ("active", c["texto"])])
     style.configure("Horizontal.TProgressbar", background=c["accent"], troughcolor=c["input"], bordercolor=c["input"], lightcolor=c["accent"], darkcolor=c["accent"], thickness=10)
     style.configure("TSeparator", background=c["container"])
+
+    # Configuração moderna para tabelas Treeview (elimina chanfro 3D Windows 98)
+    tv_bg = c.get("container", "#1e293b")
+    tv_field = c.get("input", "#0f172a")
+    tv_fg = c.get("texto", "#f8fafc")
+    tv_accent = c.get("accent", "#00d2ff")
+    tv_hover = c.get("hover", "#0284c7")
+
+    try:
+        style.configure(
+            "Treeview",
+            background=tv_field,
+            foreground=tv_fg,
+            fieldbackground=tv_field,
+            borderwidth=0,
+            relief="flat",
+            font=("Segoe UI", 9),
+            rowheight=26
+        )
+        style.configure(
+            "Treeview.Heading",
+            background=tv_bg,
+            foreground="#38bdf8",
+            font=("Segoe UI", 9, "bold"),
+            borderwidth=1,
+            relief="flat"
+        )
+        style.map("Treeview", background=[("selected", tv_accent)], foreground=[("selected", "#ffffff")])
+        style.map("Treeview.Heading", background=[("active", tv_hover)], foreground=[("active", "#ffffff")])
+    except Exception:
+        pass
 
     try:
         for scrollbar_style in ["Vertical.TScrollbar", "Horizontal.TScrollbar", "TScrollbar"]:
@@ -626,123 +663,178 @@ def inicializar_modulos():
     from modulo_atualizar_osme import construir_aba_atualizar_osme
     from modulo_contagem_deposito import construir_aba_contagem_deposito
 
+    splash_finalizado = [False]
+
     def etapa_1():
-        global dashboard_view
-        splash_progress.set(0.15)
-        lbl_splash_loading.configure(text="Carregando Painel Principal...")
         try:
-            dashboard_view = construir_aba_dashboard(
-                tab_home,
-                PALETAS,
-                obter_tema_atual,
-                on_navigate=lambda tab: sidebar_navegacao.selecionar_aba(tab, trocar_notebook=True) if sidebar_navegacao else None
-            )
-        except Exception as e:
-            log_error(f"Erro ao carregar Dashboard: {e}")
-        root.after(10, etapa_2)
+            global dashboard_view
+            try:
+                splash_progress.set(0.15)
+                lbl_splash_loading.configure(text="Carregando Painel Principal...")
+            except Exception:
+                pass
+            try:
+                dashboard_view = construir_aba_dashboard(
+                    tab_home,
+                    PALETAS,
+                    obter_tema_atual,
+                    on_navigate=lambda tab: sidebar_navegacao.selecionar_aba(tab, trocar_notebook=True) if sidebar_navegacao else None
+                )
+            except Exception as e:
+                log_error(f"Erro ao carregar Dashboard: {e}")
+        finally:
+            root.after(10, etapa_2)
 
     def etapa_2():
-        global etiquetas_view
-        splash_progress.set(0.30)
-        lbl_splash_loading.configure(text="Carregando Gerador de Etiquetas...")
         try:
-            etiquetas_view = construir_aba_etiquetas(tab_gerador, root, ARQUIVO_BANCO, PALETAS, obter_tema_atual, lbl_status)
-            etiquetas_view.carregar_banco_dados_async()
-        except Exception as e:
-            log_error(f"Erro ao carregar Etiquetas: {e}")
-        root.after(10, etapa_3)
+            global etiquetas_view
+            try:
+                splash_progress.set(0.30)
+                lbl_splash_loading.configure(text="Carregando Gerador de Etiquetas...")
+            except Exception:
+                pass
+            try:
+                etiquetas_view = construir_aba_etiquetas(tab_gerador, root, ARQUIVO_BANCO, PALETAS, obter_tema_atual, lbl_status)
+                etiquetas_view.carregar_banco_dados_async()
+            except Exception as e:
+                log_error(f"Erro ao carregar Etiquetas: {e}")
+        finally:
+            root.after(10, etapa_3)
 
     def etapa_3():
-        global extrator_view
-        splash_progress.set(0.48)
-        lbl_splash_loading.configure(text="Carregando Extrator de Seriais...")
         try:
-            extrator_view = construir_aba_extrator(tab_extrator, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar Extrator: {e}")
-        root.after(10, etapa_4)
+            global extrator_view
+            try:
+                splash_progress.set(0.45)
+                lbl_splash_loading.configure(text="Carregando Extrator de Seriais...")
+            except Exception:
+                pass
+            try:
+                extrator_view = construir_aba_extrator(tab_extrator, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar Extrator: {e}")
+        finally:
+            root.after(10, etapa_4)
 
     def etapa_4():
-        global sap_view
-        splash_progress.set(0.65)
-        lbl_splash_loading.configure(text="Carregando Módulo SAP...")
         try:
-            sap_view = construir_aba_sap(tab_sap, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar SAP: {e}")
-        root.after(10, etapa_5)
+            global sap_view
+            try:
+                splash_progress.set(0.60)
+                lbl_splash_loading.configure(text="Carregando Módulo SAP...")
+            except Exception:
+                pass
+            try:
+                sap_view = construir_aba_sap(tab_sap, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar SAP: {e}")
+        finally:
+            root.after(10, etapa_5)
 
     def etapa_5():
-        global bandeirada_view, osme_view
-        splash_progress.set(0.80)
-        lbl_splash_loading.configure(text="Carregando Bandeirada e OSME...")
         try:
-            bandeirada_view = construir_aba_bandeirada(tab_bandeirada, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar Bandeirada: {e}")
+            global bandeirada_view, osme_view
+            try:
+                splash_progress.set(0.75)
+                lbl_splash_loading.configure(text="Carregando Bandeirada e OSME...")
+            except Exception:
+                pass
+            try:
+                bandeirada_view = construir_aba_bandeirada(tab_bandeirada, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar Bandeirada: {e}")
 
-        try:
-            osme_view = construir_aba_extrair_osme(tab_osme, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar OSME: {e}")
-
-        root.after(10, etapa_6)
+            try:
+                osme_view = construir_aba_extrair_osme(tab_osme, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar OSME: {e}")
+        finally:
+            root.after(10, etapa_6)
 
     def etapa_6():
-        global transferenciaosme_view, conferencia_view, zm02_view, mudanca_recurso_view, consultar_migo_view, saida_osme_view, contagem_carro_view, atualizar_osme_view
-        splash_progress.set(0.95)
-        lbl_splash_loading.configure(text="Carregando Módulos Finais e Atualização OSME...")
-
         try:
-            transferenciaosme_view = construir_aba_transferencia_osme(tab_transfosme, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar Transf. OSME: {e}")
+            global transferenciaosme_view, conferencia_view, mudanca_recurso_view
+            try:
+                splash_progress.set(0.85)
+                lbl_splash_loading.configure(text="Carregando Operações...")
+            except Exception:
+                pass
+            try:
+                transferenciaosme_view = construir_aba_transferencia_osme(tab_transfosme, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar Transf. OSME: {e}")
 
+            try:
+                mudanca_recurso_view = construir_aba_mudanca_recurso(tab_mudanca, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar Mudança de Recurso: {e}")
+
+            try:
+                conferencia_view = construir_aba_conferencia(tab_conferencia, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar Conferência: {e}")
+        finally:
+            root.after(10, etapa_7)
+
+    def etapa_7():
         try:
-            mudanca_recurso_view = construir_aba_mudanca_recurso(tab_mudanca, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar Mudança de Recurso: {e}")
+            global zm02_view, consultar_migo_view, saida_osme_view
+            try:
+                splash_progress.set(0.92)
+                lbl_splash_loading.configure(text="Carregando Consultas e Saída OSME...")
+            except Exception:
+                pass
+            try:
+                zm02_view = construir_aba_zmcse003(tab_zm02, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar ZM02: {e}")
 
+            try:
+                consultar_migo_view = construir_aba_consultar_migo(tab_consultar_migo, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar Consultar MIGO: {e}")
+
+            try:
+                saida_osme_view = construir_aba_saida_osme(tab_saida_osme, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar Saída OSME: {e}")
+        finally:
+            root.after(10, etapa_8)
+
+    def etapa_8():
         try:
-            conferencia_view = construir_aba_conferencia(tab_conferencia, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar Conferência: {e}")
+            global contagem_carro_view, atualizar_osme_view, contagem_deposito_view
+            try:
+                splash_progress.set(0.98)
+                lbl_splash_loading.configure(text="Carregando Módulos Finais...")
+            except Exception:
+                pass
+            try:
+                contagem_carro_view = construir_aba_contagem_carro(tab_contagem_carro, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar Contagem de Carro: {e}")
 
-        try:
-            zm02_view = construir_aba_zmcse003(tab_zm02, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar ZM02: {e}")
+            try:
+                atualizar_osme_view = construir_aba_atualizar_osme(tab_atualizar_osme, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar Atualizar OSME: {e}")
 
-        try:
-            consultar_migo_view = construir_aba_consultar_migo(tab_consultar_migo, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar Consultar MIGO: {e}")
-
-        try:
-            saida_osme_view = construir_aba_saida_osme(tab_saida_osme, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar Saída OSME: {e}")
-
-        try:
-            contagem_carro_view = construir_aba_contagem_carro(tab_contagem_carro, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar Contagem de Carro: {e}")
-
-        try:
-            atualizar_osme_view = construir_aba_atualizar_osme(tab_atualizar_osme, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar Atualizar OSME: {e}")
-
-        try:
-            contagem_deposito_view = construir_aba_contagem_deposito(tab_contagem_deposito, lbl_status, PALETAS, obter_tema_atual)
-        except Exception as e:
-            log_error(f"Erro ao carregar Contagem de Depósito: {e}")
-
-        root.after(10, etapa_final)
+            try:
+                contagem_deposito_view = construir_aba_contagem_deposito(tab_contagem_deposito, lbl_status, PALETAS, obter_tema_atual)
+            except Exception as e:
+                log_error(f"Erro ao carregar Contagem de Depósito: {e}")
+        finally:
+            root.after(10, etapa_final)
 
     def etapa_final():
-        splash_progress.set(1.0)
-        lbl_splash_loading.configure(text="Pronto!")
+        if splash_finalizado[0]:
+            return
+        splash_finalizado[0] = True
+        try:
+            splash_progress.set(1.0)
+            lbl_splash_loading.configure(text="Pronto!")
+        except Exception:
+            pass
 
         def _finalizar_splash():
             try:
@@ -778,6 +870,14 @@ def inicializar_modulos():
                 pass
 
         root.after(60, _finalizar_splash)
+
+    # Watchdog de Segurança: se por qualquer motivo de rede a carga demorar > 4.5s, força a abertura do N.E.X.U.S
+    def _watchdog_splash():
+        if not splash_finalizado[0]:
+            log_error("Watchdog ativado: inicialização demorou > 4.5s, forçando abertura da interface principal.")
+            etapa_final()
+
+    root.after(4500, _watchdog_splash)
 
     # O formulário é local e não depende do SAP; inicializa junto ao restante da UI.
     try:

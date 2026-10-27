@@ -222,8 +222,14 @@ class AbaAtualizarOSME:
         self._construir_ui()
         self._iniciar_timer_pendencias()
 
-        if self.caminho_planilha and os.path.exists(self.caminho_planilha):
-            self.parent_frame.after(600, self._iniciar_leitura_planilha_thread)
+        self.precisa_carregar_planilha = bool(self.caminho_planilha and os.path.exists(self.caminho_planilha))
+
+        def _ao_exibir_aba(event=None):
+            if self.precisa_carregar_planilha:
+                self.precisa_carregar_planilha = False
+                self._iniciar_leitura_planilha_thread()
+
+        self.parent_frame.bind("<Visibility>", _ao_exibir_aba, add="+")
 
     def _carregar_caminho_salvo(self):
         if os.path.exists(CAMINHO_CONFIG):
@@ -267,8 +273,49 @@ class AbaAtualizarOSME:
                 self.container.configure(fg_color=container)
             if hasattr(self, "f_barra_fixa"):
                 self.f_barra_fixa.configure(fg_color=container)
+            for card in [getattr(self, "card_plan", None), getattr(self, "card_acoes", None), getattr(self, "card_tabela", None), getattr(self, "card_log", None)]:
+                if card:
+                    try:
+                        card.configure(fg_color=container)
+                    except Exception:
+                        pass
+            if hasattr(self, "entry_caminho"):
+                self.entry_caminho.configure(fg_color=input_bg, text_color=texto)
             if hasattr(self, "txt_log"):
                 self.txt_log.configure(fg_color=input_bg, text_color=texto)
+
+            estilo = ttk.Style()
+            if "clam" in estilo.theme_names():
+                estilo.theme_use("clam")
+
+            estilo.configure(
+                "AtualizarOSME.Treeview",
+                background=input_bg,
+                foreground=texto,
+                fieldbackground=input_bg,
+                borderwidth=0,
+                relief="flat",
+                font=("Segoe UI", 9),
+                rowheight=26
+            )
+            estilo.configure(
+                "AtualizarOSME.Treeview.Heading",
+                background=container,
+                foreground="#38bdf8",
+                font=("Segoe UI", 9, "bold"),
+                borderwidth=1,
+                relief="flat"
+            )
+            estilo.map(
+                "AtualizarOSME.Treeview",
+                background=[("selected", paleta.get("accent", "#00d2ff"))],
+                foreground=[("selected", "#ffffff")]
+            )
+            estilo.map(
+                "AtualizarOSME.Treeview.Heading",
+                background=[("active", paleta.get("hover", "#0284c7"))],
+                foreground=[("active", "#ffffff")]
+            )
         except Exception:
             pass
 
@@ -304,7 +351,7 @@ class AbaAtualizarOSME:
         self.frame_conteudo.pack(side="top", fill="both", expand=True, padx=10, pady=(10, 0))
 
         # Card 1: Configuração da Planilha
-        card_plan = ctk.CTkFrame(self.frame_conteudo, corner_radius=10, fg_color="#172a45")
+        self.card_plan = card_plan = ctk.CTkFrame(self.frame_conteudo, corner_radius=10, fg_color="#172a45")
         card_plan.pack(fill="x", pady=(0, 10))
 
         f_topo_plan = ctk.CTkFrame(card_plan, fg_color="transparent")
@@ -401,7 +448,7 @@ class AbaAtualizarOSME:
         self.btn_ver_banner.pack(side="right", padx=(0, 4), pady=4)
 
         # Card 2: Barra de Ações e Filtros de Execução
-        card_acoes = ctk.CTkFrame(self.frame_conteudo, corner_radius=10, fg_color="#172a45")
+        self.card_acoes = card_acoes = ctk.CTkFrame(self.frame_conteudo, corner_radius=10, fg_color="#172a45")
         card_acoes.pack(fill="x", pady=(0, 10))
 
         f_controles = ctk.CTkFrame(card_acoes, fg_color="transparent")
@@ -470,7 +517,7 @@ class AbaAtualizarOSME:
         self.lbl_progresso_texto.pack(anchor="w")
 
         # Card 3: Tabela Comparativa (Treeview)
-        card_tabela = ctk.CTkFrame(self.frame_conteudo, corner_radius=10, fg_color="#172a45")
+        self.card_tabela = card_tabela = ctk.CTkFrame(self.frame_conteudo, corner_radius=10, fg_color="#172a45")
         card_tabela.pack(fill="both", expand=True, pady=(0, 10))
 
         f_tit_tab = ctk.CTkFrame(card_tabela, fg_color="transparent")
@@ -495,7 +542,7 @@ class AbaAtualizarOSME:
         f_tree_container.pack(fill="both", expand=True, padx=14, pady=(0, 10))
 
         colunas = ("item", "equipe", "deposito", "segmento", "ordem_atual", "venc_atual", "ordem_sap", "venc_sap", "status")
-        self.tree = ttk.Treeview(f_tree_container, columns=colunas, show="headings", height=10)
+        self.tree = ttk.Treeview(f_tree_container, columns=colunas, show="headings", height=10, style="AtualizarOSME.Treeview")
 
         self.tree.heading("item", text="#")
         self.tree.heading("equipe", text="Equipe (Z2)")
@@ -529,7 +576,7 @@ class AbaAtualizarOSME:
         self.tree.tag_configure("erro", foreground="#f87171")
 
         # Card 4: Terminal de Log de Execução
-        card_log = ctk.CTkFrame(self.frame_conteudo, corner_radius=10, fg_color="#172a45")
+        self.card_log = card_log = ctk.CTkFrame(self.frame_conteudo, corner_radius=10, fg_color="#172a45")
         card_log.pack(fill="x", pady=(0, 5))
 
         f_tit_log = ctk.CTkFrame(card_log, fg_color="transparent")
@@ -649,6 +696,11 @@ class AbaAtualizarOSME:
                     pass
                 try:
                     buf.close()
+                except Exception:
+                    pass
+                try:
+                    import gc
+                    gc.collect()
                 except Exception:
                     pass
 
@@ -1077,7 +1129,7 @@ Next
             return
 
         script_vbs = self._gerar_script_varredura_vbs(equipes_totais)
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".vbs", delete=False, encoding="latin-1") as tf:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".vbs", delete=False, encoding="latin-1", errors="replace") as tf:
             tf.write(script_vbs)
             caminho_vbs = tf.name
 

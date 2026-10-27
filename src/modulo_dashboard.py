@@ -289,7 +289,7 @@ class AbaDashboard:
         )
         self.lbl_radar_desc.pack(anchor="w", padx=12, pady=(0, 6))
 
-        self.scroll_radar = ctk.CTkScrollableFrame(self.painel_radar, height=190, corner_radius=6, fg_color="transparent")
+        self.scroll_radar = ctk.CTkFrame(self.painel_radar, corner_radius=6, fg_color="transparent")
         self.scroll_radar.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
         self.btn_acao_radar = ctk.CTkButton(
@@ -332,7 +332,7 @@ class AbaDashboard:
         )
         self.lbl_time_desc.pack(anchor="w", padx=12, pady=(0, 6))
 
-        self.scroll_timeline = ctk.CTkScrollableFrame(self.painel_timeline, height=190, corner_radius=6, fg_color="transparent")
+        self.scroll_timeline = ctk.CTkFrame(self.painel_timeline, corner_radius=6, fg_color="transparent")
         self.scroll_timeline.pack(fill="both", expand=True, padx=8, pady=(0, 8))
 
         self.btn_acao_backup = ctk.CTkButton(
@@ -461,25 +461,55 @@ class AbaDashboard:
         self._atualizar_cards_metricas()
 
     def _checar_status_sistemas(self):
-        """Verifica conexão com SAP e Drive X."""
-        # SAP GUI
-        try:
-            import win32com.client
-            sap_gui = win32com.client.GetObject("SAPGUI")
-            app = sap_gui.GetScriptingEngine
-            con = app.Children(0)
-            sess = con.Children(0)
-            user = sess.Info.User
-            self.lbl_status_sap.configure(text=f"🟢 SAP: Conectado ({user})", text_color="#10b981")
-        except Exception:
-            self.lbl_status_sap.configure(text="⚪ SAP: Offline / Fechado", text_color="#94a3b8")
+        """Verifica conexão com SAP e Drive X de forma 100% assíncrona (não congela a UI)."""
+        def _worker():
+            status_sap_txt = "⚪ SAP: Offline / Fechado"
+            status_sap_cor = "#94a3b8"
+            try:
+                import win32com.client
+                import pythoncom
+                pythoncom.CoInitialize()
+                sap_gui = win32com.client.GetObject("SAPGUI")
+                app = getattr(sap_gui, "GetScriptingEngine", None)
+                if callable(app):
+                    app = app()
+                if app and getattr(app, "Children", None) and app.Children.Count > 0:
+                    con = app.Children(0)
+                    if con and getattr(con, "Children", None) and con.Children.Count > 0:
+                        sess = con.Children(0)
+                        user = getattr(sess.Info, "User", "") or "Conectado"
+                        status_sap_txt = f"🟢 SAP: Conectado ({user})"
+                        status_sap_cor = "#10b981"
+            except Exception:
+                pass
+            finally:
+                try:
+                    import pythoncom
+                    pythoncom.CoUninitialize()
+                except Exception:
+                    pass
 
-        # Drive X
-        drive_x = r"X:\obras\Elpa - Almox CR Mauá"
-        if os.path.exists(drive_x):
-            self.lbl_status_rede.configure(text="🟢 Drive X: Online", text_color="#10b981")
-        else:
-            self.lbl_status_rede.configure(text="🟡 Drive X: Offline", text_color="#f59e0b")
+            # Drive X
+            status_rede_txt = "🟡 Drive X: Offline"
+            status_rede_cor = "#f59e0b"
+            try:
+                drive_x = r"X:\obras\Elpa - Almox CR Mauá"
+                if os.path.exists(drive_x):
+                    status_rede_txt = "🟢 Drive X: Online"
+                    status_rede_cor = "#10b981"
+            except Exception:
+                pass
+
+            def _aplicar():
+                try:
+                    self.lbl_status_sap.configure(text=status_sap_txt, text_color=status_sap_cor)
+                    self.lbl_status_rede.configure(text=status_rede_txt, text_color=status_rede_cor)
+                except Exception:
+                    pass
+
+            self.parent_frame.after(0, _aplicar)
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     def _carregar_saidas_hoje_async(self):
         """Carrega o arquivo local de hoje para contar saídas e preencher a timeline (Zero-Lock via BytesIO)."""
@@ -501,6 +531,8 @@ class AbaDashboard:
                     finally:
                         wb.close()
                         buf.close()
+                        import gc
+                        gc.collect()
                 except Exception:
                     pass
 
@@ -563,6 +595,8 @@ class AbaDashboard:
                     finally:
                         wb.close()
                         buf.close()
+                        import gc
+                        gc.collect()
                 except Exception:
                     pass
 
@@ -572,7 +606,7 @@ class AbaDashboard:
         threading.Thread(target=_worker, daemon=True).start()
 
     def _renderizar_radar(self):
-        """Desenha os itens críticos no ScrollableFrame do Radar."""
+        """Desenha os itens críticos no container limpo do Radar."""
         for w in self.scroll_radar.winfo_children():
             w.destroy()
 
@@ -593,8 +627,9 @@ class AbaDashboard:
         c = self._cores(self.obter_tema_atual())
         card_bg = c.get("card_bg", "#131d2e")
 
-        for item in self.lista_osmes_criticas[:25]:  # Exibe até as 25 mais críticas
-            row = ctk.CTkFrame(self.scroll_radar, height=34, corner_radius=6, fg_color=card_bg)
+        # Exibe até as 8 mais críticas com fluidez máxima sem rolagem aninhada
+        for item in self.lista_osmes_criticas[:8]:
+            row = ctk.CTkFrame(self.scroll_radar, height=32, corner_radius=6, fg_color=card_bg)
             row.pack(fill="x", pady=2, padx=2)
             row.pack_propagate(False)
 
@@ -612,6 +647,15 @@ class AbaDashboard:
                 anchor="e"
             )
             lbl_v.pack(side="right", padx=8)
+
+        if qtd > 8:
+            lbl_mais = ctk.CTkLabel(
+                self.scroll_radar,
+                text=f"... e mais {qtd - 8} equipe(s) crítica(s) (Ver na aba Atualizar OSME)",
+                font=("Segoe UI", 9, "italic"),
+                text_color="#f59e0b"
+            )
+            lbl_mais.pack(pady=(3, 2))
 
     def _renderizar_timeline(self):
         """Desenha as saídas do dia em ordem cronológica reversa."""
@@ -634,8 +678,8 @@ class AbaDashboard:
         c = self._cores(self.obter_tema_atual())
         card_bg = c.get("card_bg", "#131d2e")
 
-        # Exibe as últimas saídas de hoje em ordem inversa
-        for r in reversed(self.lista_saidas_hoje[-20:]):
+        # Exibe até as 8 últimas saídas de hoje em ordem inversa
+        for r in reversed(self.lista_saidas_hoje[-8:]):
             serial = str(r[0] or "Item")
             mat = str(r[1] or "")
             eq = str(r[3] or "Equipe")
@@ -643,7 +687,7 @@ class AbaDashboard:
             hora_completa = str(r[6] or "")
             hora_simples = hora_completa.split(" ")[-1][:5] if " " in hora_completa else hora_completa[:5]
 
-            row = ctk.CTkFrame(self.scroll_timeline, height=34, corner_radius=6, fg_color=card_bg)
+            row = ctk.CTkFrame(self.scroll_timeline, height=32, corner_radius=6, fg_color=card_bg)
             row.pack(fill="x", pady=2, padx=2)
             row.pack_propagate(False)
 
@@ -661,6 +705,15 @@ class AbaDashboard:
             if doc_sap and doc_sap != "None":
                 lbl_doc = ctk.CTkLabel(row, text=f"Doc: {doc_sap}", font=("Segoe UI", 9), text_color="#94a3b8", anchor="e")
                 lbl_doc.pack(side="right", padx=6)
+
+        if qtd > 8:
+            lbl_mais = ctk.CTkLabel(
+                self.scroll_timeline,
+                text=f"... e mais {qtd - 8} saída(s) registrada(s) hoje (Ver no Backup Diário)",
+                font=("Segoe UI", 9, "italic"),
+                text_color="#38bdf8"
+            )
+            lbl_mais.pack(pady=(3, 2))
 
     def _alternar_modo_metricas(self, modo):
         self.modo_visualizacao = modo

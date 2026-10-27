@@ -207,11 +207,11 @@ class AbaRelatorioPlataforma:
         )
         self.lbl_titulo_tabela.pack(expand=True, pady=4)
 
-        self.frame_tree = tk.Frame(self.frame_central, bg="#172a45")
+        self.frame_tree = ctk.CTkFrame(self.frame_central, fg_color="transparent")
         self.frame_tree.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 4))
 
         colunas = ("segmento", "total", "manha", "pct_manha", "tarde", "pct_tarde")
-        self.tree = ttk.Treeview(self.frame_tree, columns=colunas, show="headings", height=5)
+        self.tree = ttk.Treeview(self.frame_tree, columns=colunas, show="headings", height=5, style="Plataforma.Treeview")
         
         self.tree.heading("segmento", text="SEGMENTO")
         self.tree.heading("total", text="TOTAL FICHAS")
@@ -668,13 +668,28 @@ class AbaRelatorioPlataforma:
         )
 
         style = ttk.Style()
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
         style.configure(
-            "Treeview.Heading",
-            background="#0677D9",
-            foreground="#FFFFFF",
+            "Plataforma.Treeview",
+            background=c.get("input", "#1f3a60"),
+            foreground=c.get("texto", "#ffffff"),
+            fieldbackground=c.get("input", "#1f3a60"),
+            rowheight=24,
+            relief="flat",
+            borderwidth=0,
+            font=("Segoe UI", 10)
+        )
+        style.configure(
+            "Plataforma.Treeview.Heading",
+            background=c.get("container", "#172a45"),
+            foreground="#38bdf8",
+            relief="flat",
+            borderwidth=1,
             font=("Segoe UI", 10, "bold")
         )
-        style.map("Treeview.Heading", background=[("active", "#005BA1")])
+        style.map("Plataforma.Treeview", background=[("selected", c.get("accent", "#00d2ff"))], foreground=[("selected", "white")])
+        style.map("Plataforma.Treeview.Heading", background=[("active", c.get("hover", "#0284c7"))], foreground=[("active", "white")])
 
 
 def construir_aba_plataforma(parent_frame, lbl_status=None, paletas=None, obter_tema_atual=None):

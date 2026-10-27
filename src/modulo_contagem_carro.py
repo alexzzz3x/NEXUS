@@ -474,6 +474,8 @@ class AbaContagemCarro:
         texto = c.get("texto", "#f8fafc")
         accent = c.get("accent", "#00d2ff")
 
+        hover = c.get("hover", "#0284c7")
+
         self.parent_frame.configure(fg_color=bg)
         if hasattr(self, "container"):
             self.container.configure(fg_color=container)
@@ -484,17 +486,36 @@ class AbaContagemCarro:
 
         try:
             estilo = ttk.Style()
+            if "clam" in estilo.theme_names():
+                estilo.theme_use("clam")
+
             estilo.configure(
-                "Treeview",
-                background=container,
+                "ContagemCarro.Treeview",
+                background=inp,
                 foreground=texto,
                 fieldbackground=inp,
-                bordercolor=container
+                borderwidth=0,
+                relief="flat",
+                font=("Segoe UI", 9),
+                rowheight=26
+            )
+            estilo.configure(
+                "ContagemCarro.Treeview.Heading",
+                background=container,
+                foreground="#38bdf8",
+                font=("Segoe UI", 9, "bold"),
+                borderwidth=1,
+                relief="flat"
             )
             estilo.map(
-                "Treeview",
+                "ContagemCarro.Treeview",
                 background=[("selected", accent)],
-                foreground=[("selected", "white")]
+                foreground=[("selected", "#ffffff")]
+            )
+            estilo.map(
+                "ContagemCarro.Treeview.Heading",
+                background=[("active", hover)],
+                foreground=[("active", "#ffffff")]
             )
         except Exception:
             pass
@@ -785,7 +806,11 @@ class AbaContagemCarro:
         lbl_tab_tit.pack(anchor="w", padx=10, pady=(6, 2))
 
         colunas = ("serial", "material", "ordem_origem", "ordem_destino", "status_zmcse", "resultado")
-        self.tree = ttk.Treeview(card_tabela, columns=colunas, show="headings", height=8)
+        self.tree = ttk.Treeview(card_tabela, columns=colunas, show="headings", height=8, style="ContagemCarro.Treeview")
+
+        self.tree.tag_configure("apto", foreground="#38bdf8")
+        self.tree.tag_configure("divergente", foreground="#f87171")
+        self.tree.tag_configure("concluido", foreground="#34d399")
 
         self.tree.heading("serial", text="Número de Série")
         self.tree.heading("material", text="Material")
@@ -944,7 +969,7 @@ class AbaContagemCarro:
     # =========================================================================
 
     def _executar_script_vbs(self, script_str, timeout=None):
-        with tempfile.NamedTemporaryFile(mode="w", suffix=".vbs", delete=False, encoding="latin-1") as tf:
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".vbs", delete=False, encoding="latin-1", errors="replace") as tf:
             tf.write(script_str)
             caminho_vbs = tf.name
 

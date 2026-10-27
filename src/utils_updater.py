@@ -25,7 +25,7 @@ import customtkinter as ctk
 
 import urllib.request
 
-VERSAO_ATUAL = "2.2.9"
+VERSAO_ATUAL = "2.3.2"
 
 # 1. Endereço online no GitHub (prioridade máxima — funciona de qualquer lugar)
 URL_VERSAO_GITHUB = "https://raw.githubusercontent.com/Alexzzzx2/NEXUS/main/versao.json"
@@ -81,28 +81,13 @@ def verificar_atualizacao_disponivel():
 
 
 def obter_dados_versao_local_ou_remota():
-    """Retorna os dados completos da versão e notas de lançamento (online, rede ou local)."""
-    # 1. Fallback na Rede Local (Drive X:)
-    try:
-        if os.path.exists(ARQUIVO_VERSAO_REDE):
-            with open(ARQUIVO_VERSAO_REDE, "r", encoding="utf-8") as f:
-                return json.load(f)
-    except Exception:
-        pass
-
-    # 2. Tentativa Online via GitHub
-    try:
-        req = urllib.request.Request(
-            URL_VERSAO_GITHUB,
-            headers={"User-Agent": "NEXUS-Desktop-Updater"}
-        )
-        with urllib.request.urlopen(req, timeout=3.0) as resp:
-            if resp.status == 200:
-                return json.loads(resp.read().decode("utf-8"))
-    except Exception:
-        pass
-
-    # 3. Fallback no arquivo local versao.json
+    """
+    Retorna os dados completos da versão e notas de lançamento (online, rede ou local).
+    Garante que a versão instalada no executável (VERSAO_ATUAL) sempre tenha suas
+    notas de versão exibidas, a menos que haja uma versão remota estritamente mais recente.
+    """
+    # 1. Carrega dados locais empacotados com o aplicativo
+    dados_local = {}
     try:
         from utils_os import obter_caminho_recurso, obter_diretorio_executavel
         candidatos = [
@@ -113,9 +98,44 @@ def obter_dados_versao_local_ou_remota():
         for c in candidatos:
             if os.path.exists(c):
                 with open(c, "r", encoding="utf-8") as f:
-                    return json.load(f)
+                    dados_local = json.load(f)
+                    if dados_local:
+                        break
+    except Exception:
+        dados_local = {}
+
+    v_local = dados_local.get("versao", VERSAO_ATUAL)
+
+    # 2. Checa se há versão mais recente na rede corporativa ou online no GitHub
+    dados_remoto = {}
+    try:
+        if os.path.exists(ARQUIVO_VERSAO_REDE):
+            with open(ARQUIVO_VERSAO_REDE, "r", encoding="utf-8") as f:
+                dados_remoto = json.load(f)
     except Exception:
         pass
+
+    if not dados_remoto:
+        try:
+            req = urllib.request.Request(
+                URL_VERSAO_GITHUB,
+                headers={"User-Agent": "NEXUS-Desktop-Updater"}
+            )
+            with urllib.request.urlopen(req, timeout=3.0) as resp:
+                if resp.status == 200:
+                    dados_remoto = json.loads(resp.read().decode("utf-8"))
+        except Exception:
+            pass
+
+    v_remoto = dados_remoto.get("versao", "0.0.0")
+
+    # Se a versão remota for estritamente superior à versão atual, exibe a remota
+    if dados_remoto and parse_versao(v_remoto) > parse_versao(v_local):
+        return dados_remoto
+
+    # Caso contrário, exibe sempre os dados da versão atual instalada
+    if dados_local:
+        return dados_local
 
     return {
         "versao": VERSAO_ATUAL,
@@ -206,6 +226,8 @@ class ModalNovidades(ctk.CTkToplevel):
         f_corpo.pack(fill="both", expand=True, padx=20, pady=(12, 10))
 
         versao_exibida = self.dados_versao.get("versao", VERSAO_ATUAL)
+        if parse_versao(versao_exibida) < parse_versao(VERSAO_ATUAL):
+            versao_exibida = VERSAO_ATUAL
         data_versao = self.dados_versao.get("data", "")
         notas = self.dados_versao.get("notas", "Melhorias gerais e correções de estabilidade.")
 
@@ -491,47 +513,214 @@ class ModalAtualizacao(ctk.CTkToplevel):
                     self.lbl_status.configure(text="Aplicando nova versão e reiniciando...", text_color="#10b981")
                 ))
 
-                # 2. Gera o script silencioso .bat que substitui o executável
-                # Importante: Limpa _MEIPASS2, PYTHONHOME e PYTHONPATH para a nova instancia nao herdar caminhos temporarios antigos
+                # 2. Gera os scripts robustos de atualização com Staging e Substituição Atômica
+                # Escapa aspas simples para segurança contra caminhos com apóstrofos
+                zip_local_ps = zip_local.replace("'", "''")
+                dir_exe_ps = dir_exe.replace("'", "''")
+                caminho_exe_ps = caminho_exe.replace("'", "''")
+                exe_nome = os.path.basename(caminho_exe)
+                exe_stem_ps = os.path.splitext(exe_nome)[0].replace("'", "''")
+
+                script_ps1 = os.path.join(pasta_temp, "aplicar_nexus_update.ps1")
+                conteudo_ps1 = f"""# Script de Atualizacao Robusta do N.E.X.U.S (Staging + Atomic Rename)
+$env:_MEIPASS2 = $null
+$env:PYTHONHOME = $null
+$env:PYTHONPATH = $null
+
+$log_file = Join-Path $env:TEMP "nexus_update.log"
+function Log-Msg($msg) {{
+    $ts = (Get-Date).ToString("yyyy-MM-dd HH:mm:ss")
+    $linha = "[$ts] $msg"
+    try {{ $linha | Out-File -FilePath $log_file -Append -Encoding utf8 }} catch {{}}
+}}
+
+Log-Msg "======================================================="
+Log-Msg "Iniciando processo de atualizacao do N.E.X.U.S..."
+Log-Msg "Origem ZIP: '{zip_local_ps}'"
+Log-Msg "Destino Principal: '{caminho_exe_ps}'"
+
+# 1. Encerra instancias em execucao do N.E.X.U.S
+$tentativas = 25
+while ($tentativas -gt 0) {{
+    $procs = Get-Process -ErrorAction SilentlyContinue | Where-Object {{
+        $_.ProcessName -match "N\\\\.?E\\\\.?X\\\\.?U\\\\.?S|Conecta.*Hub" -or $_.ProcessName -eq "{exe_stem_ps}"
+    }}
+    if (-not $procs) {{ break }}
+    $procs | Stop-Process -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Milliseconds 400
+    $tentativas--
+}}
+Start-Sleep -Milliseconds 800
+Log-Msg "Processos anteriores finalizados."
+
+# 2. Descompacta a nova versao em pasta de staging limpa e isolada (imune a arquivos bloqueados)
+$pasta_staging = Join-Path $env:TEMP ("nexus_staging_" + [guid]::NewGuid().ToString("N"))
+try {{
+    New-Item -ItemType Directory -Path $pasta_staging -Force | Out-Null
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    [System.IO.Compression.ZipFile]::ExtractToDirectory('{zip_local_ps}', $pasta_staging)
+    Log-Msg "Descompactado com sucesso via ZipFile em $pasta_staging"
+}} catch {{
+    Log-Msg "Aviso ZipFile: $($_.Exception.Message). Tentando Expand-Archive..."
+    try {{
+        Expand-Archive -LiteralPath '{zip_local_ps}' -DestinationPath $pasta_staging -Force -ErrorAction Stop
+        Log-Msg "Descompactado com sucesso via Expand-Archive em $pasta_staging"
+    }} catch {{
+        Log-Msg "ERRO CRITICO ao descompactar: $($_.Exception.Message)"
+    }}
+}}
+
+# Localiza o executavel novo descompactado
+$novo_exe = Join-Path $pasta_staging "N.E.X.U.S.exe"
+if (-not (Test-Path -LiteralPath $novo_exe)) {{
+    $achado = Get-ChildItem -Path $pasta_staging -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($achado) {{ $novo_exe = $achado.FullName }}
+}}
+
+if (-not (Test-Path -LiteralPath $novo_exe)) {{
+    Log-Msg "ERRO FATAL: Novo executavel nao foi encontrado na pasta de staging."
+    Add-Type -AssemblyName System.Windows.Forms
+    [System.Windows.Forms.MessageBox]::Show(
+        "Nao foi possivel extrair o arquivo N.E.X.U.S.exe do pacote de atualizacao.`n`nPor favor, copie o executavel diretamente da pasta corporativa (Drive X).",
+        "N.E.X.U.S - Erro de Atualizacao",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Error
+    )
+    exit 1
+}}
+Log-Msg "Novo executavel pronto para copia: $novo_exe"
+
+# 3. Funcao de teste e substituicao atomica
+function Test-FileWritable($p) {{
+    if (-not (Test-Path -LiteralPath $p)) {{ return $true }}
+    try {{
+        $fs = [System.IO.File]::Open($p, [System.IO.FileMode]::Open, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+        if ($fs) {{ $fs.Close(); $fs.Dispose(); return $true }}
+    }} catch {{ return $false }}
+    return $false
+}}
+
+function Replace-NexusFile($target, $source) {{
+    Log-Msg "Processando substituicao do arquivo: $target"
+    # Aguarda liberacao do handle de arquivo se ainda estiver em uso
+    $tent = 25
+    while ($tent -gt 0) {{
+        if (Test-FileWritable $target) {{ break }}
+        Start-Sleep -Milliseconds 400
+        $tent--
+    }}
+
+    # Tentativa 1: Copia direta sobrescrevendo
+    try {{
+        Copy-Item -LiteralPath $source -Destination $target -Force -ErrorAction Stop
+        Log-Msg "Substituicao direta OK: $target"
+        return $true
+    }} catch {{
+        Log-Msg "Copia direta falhou ($($_.Exception.Message)). Tentando renomear para .old..."
+    }}
+
+    # Tentativa 2: Move atomico para .old e copia novo arquivo (NTFS permite renomear mesmo em leitura)
+    try {{
+        $old_path = "$target.old"
+        Remove-Item -LiteralPath $old_path -Force -ErrorAction SilentlyContinue
+        Move-Item -LiteralPath $target -Destination $old_path -Force -ErrorAction Stop
+        Copy-Item -LiteralPath $source -Destination $target -Force -ErrorAction Stop
+        Remove-Item -LiteralPath $old_path -Force -ErrorAction SilentlyContinue
+        Log-Msg "Substituicao atomica via .old OK: $target"
+        return $true
+    }} catch {{
+        Log-Msg "ERRO na substituicao de $target: $($_.Exception.Message)"
+        return $false
+    }}
+}}
+
+# 4. Substitui o executavel principal
+$sucesso_principal = Replace-NexusFile '{caminho_exe_ps}' $novo_exe
+
+# 5. Varredura e sincronizacao de todas as Areas de Trabalho
+$desktop_pastas = @(
+    [Environment]::GetFolderPath('Desktop'),
+    [Environment]::GetFolderPath('CommonDesktopDirectory'),
+    (Join-Path $env:USERPROFILE "Desktop"),
+    (Join-Path $env:USERPROFILE "Área de Trabalho"),
+    (Join-Path $env:USERPROFILE "OneDrive\Desktop"),
+    (Join-Path $env:USERPROFILE "OneDrive\Área de Trabalho")
+) | Where-Object {{ $_ -and (Test-Path -LiteralPath $_) }} | Select-Object -Unique
+
+foreach ($dp in $desktop_pastas) {{
+    $nomes_alvo = @("N.E.X.U.S.exe", "NEXUS.exe", "Conecta Hub 2.0.exe")
+    foreach ($na in $nomes_alvo) {{
+        $caminho_cand = Join-Path $dp $na
+        if (Test-Path -LiteralPath $caminho_cand) {{
+            $path_cand_real = (Resolve-Path -LiteralPath $caminho_cand).Path
+            $path_princ_real = (Resolve-Path -LiteralPath '{caminho_exe_ps}' -ErrorAction SilentlyContinue).Path
+            if ($path_cand_real -ne $path_princ_real) {{
+                Log-Msg "Copia adicional encontrada na Area de Trabalho: $caminho_cand"
+                Replace-NexusFile $caminho_cand $novo_exe | Out-Null
+            }}
+        }}
+    }}
+}}
+
+# 6. Se o executavel principal nao estava na Area de Trabalho oficial (ex: rodou de Downloads),
+# garante que a Area de Trabalho oficial receba/mantenha o N.E.X.U.S.exe atualizado
+$desktop_oficial = [Environment]::GetFolderPath('Desktop')
+if ($desktop_oficial -and (Test-Path -LiteralPath $desktop_oficial)) {{
+    $desk_nexus = Join-Path $desktop_oficial "N.E.X.U.S.exe"
+    if (Test-Path -LiteralPath $desk_nexus) {{
+        Replace-NexusFile $desk_nexus $novo_exe | Out-Null
+    }}
+}}
+
+# 7. Limpa arquivos temporarios
+Remove-Item -LiteralPath '{zip_local_ps}' -Force -ErrorAction SilentlyContinue
+Remove-Item -LiteralPath $pasta_staging -Recurse -Force -ErrorAction SilentlyContinue
+
+# 8. Reinicia o N.E.X.U.S atualizado
+if ($sucesso_principal -and (Test-Path -LiteralPath '{caminho_exe_ps}')) {{
+    Log-Msg "Iniciando versao atualizada: '{caminho_exe_ps}'"
+    Start-Process -FilePath '{caminho_exe_ps}'
+}} elseif ($desktop_oficial -and (Test-Path -LiteralPath (Join-Path $desktop_oficial "N.E.X.U.S.exe"))) {{
+    $alvo_desk = Join-Path $desktop_oficial "N.E.X.U.S.exe"
+    Log-Msg "Iniciando a partir da Area de Trabalho: $alvo_desk"
+    Start-Process -FilePath $alvo_desk
+}} else {{
+    Log-Msg "AVISO: Executavel nao encontrado para auto-reinicio."
+}}
+
+Log-Msg "Processo de atualizacao finalizado com sucesso."
+Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force -ErrorAction SilentlyContinue
+"""
+                # Salva com codificacao UTF-8 com BOM e substituicao de erros para imunidade total
+                with open(script_ps1, "w", encoding="utf-8-sig", errors="replace") as f:
+                    f.write(conteudo_ps1)
+
+                # Script .bat complementar para compatibilidade maxima
                 script_bat = os.path.join(pasta_temp, "aplicar_nexus_update.bat")
                 conteudo_bat = f"""@echo off
+chcp 65001 > nul
 set _MEIPASS2=
 set PYTHONHOME=
 set PYTHONPATH=
-echo Encerrando todas as instancias do N.E.X.U.S...
-:loop_kill
-taskkill /F /T /IM "N.E.X.U.S.exe" > nul 2>&1
-timeout /t 1 /nobreak > nul
-tasklist /FI "IMAGENAME eq N.E.X.U.S.exe" 2>NUL | find /I /N "N.E.X.U.S.exe" > NUL
-if "%ERRORLEVEL%"=="0" goto loop_kill
-timeout /t 1 /nobreak > nul
-
-echo Extraindo nova versao...
-powershell -NoProfile -ExecutionPolicy Bypass -Command "Expand-Archive -Path '{zip_local}' -DestinationPath '{dir_exe}' -Force"
-
-echo Limpando arquivos temporarios...
-del /F /Q "{zip_local}" > nul 2>&1
-
-echo Reiniciando N.E.X.U.S...
-set _MEIPASS2=
-set PYTHONHOME=
-set PYTHONPATH=
-start "" "{caminho_exe}"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{script_ps1}"
 del /F /Q "%~f0" > nul 2>&1
 exit
 """
-                with open(script_bat, "w", encoding="latin-1") as f:
+                with open(script_bat, "w", encoding="utf-8", errors="replace") as f:
                     f.write(conteudo_bat)
 
-                # 3. Dispara o .bat desacoplado com ambiente higienizado e encerra a instância atual
+                # 3. Dispara o PowerShell diretamente de forma desacoplada com ambiente higienizado
                 env_limpo = os.environ.copy()
                 env_limpo.pop("_MEIPASS2", None)
                 env_limpo.pop("PYTHONHOME", None)
                 env_limpo.pop("PYTHONPATH", None)
+
                 subprocess.Popen(
-                    ["cmd.exe", "/c", script_bat],
+                    [
+                        "powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass",
+                        "-WindowStyle", "Hidden", "-File", script_ps1
+                    ],
                     env=env_limpo,
-                    shell=True,
                     creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
                 )
                 

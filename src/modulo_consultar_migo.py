@@ -663,7 +663,7 @@ class AbaConsultarMigo:
 
         # Estilo Treeview
         colunas = ("equipe", "ordem", "item", "material", "descricao", "qtd", "un", "recebedor", "centro", "deposito")
-        self.tree = ttk.Treeview(self.frame_tabela, columns=colunas, show="headings", selectmode="browse")
+        self.tree = ttk.Treeview(self.frame_tabela, columns=colunas, show="headings", selectmode="browse", style="ConsultarMIGO.Treeview")
         
         self.tree.heading("equipe", text="Equipe")
         self.tree.heading("ordem", text="Ordem (IW39)")
@@ -764,23 +764,28 @@ class AbaConsultarMigo:
 
         # Configuração das cores da Treeview
         style = ttk.Style()
-        style.theme_use("clam")
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
         style.configure(
-            "Treeview",
+            "ConsultarMIGO.Treeview",
             background=c["input"],
             foreground=c["texto"],
             fieldbackground=c["input"],
-            rowheight=22,
+            rowheight=24,
+            relief="flat",
+            borderwidth=0,
             font=("Segoe UI", 10)
         )
         style.configure(
-            "Treeview.Heading",
+            "ConsultarMIGO.Treeview.Heading",
             background=c["container"],
-            foreground=c["texto"],
+            foreground="#38bdf8",
             relief="flat",
+            borderwidth=1,
             font=("Segoe UI", 10, "bold")
         )
-        style.map("Treeview", background=[("selected", c["accent"])], foreground=[("selected", "white")])
+        style.map("ConsultarMIGO.Treeview", background=[("selected", c["accent"])], foreground=[("selected", "white")])
+        style.map("ConsultarMIGO.Treeview.Heading", background=[("active", c.get("hover", "#0284c7"))], foreground=[("active", "white")])
         self.tree.tag_configure("destaque", background="#064e3b", foreground="#a7f3d0")
 
     def _obter_recebedor_esperado(self, equipe):

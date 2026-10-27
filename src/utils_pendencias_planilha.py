@@ -118,6 +118,53 @@ def remover_pendencia(pendencia_id):
     return len(nova_lista)
 
 
+def limpar_todas_pendencias():
+    """Limpa completamente a fila de pendências persistente."""
+    salvar_pendencias([])
+    return 0
+
+
+def _converter_data_para_excel(data_val):
+    """
+    Converte qualquer valor de data (string, datetime, date) em datetime(ano, mes, dia)
+    compatível 100% com openpyxl e Excel COM (VT_DATE).
+    """
+    if not data_val:
+        agora = datetime.now()
+        return datetime(agora.year, agora.month, agora.day)
+    if isinstance(data_val, datetime):
+        return datetime(data_val.year, data_val.month, data_val.day)
+    try:
+        from datetime import date
+        if isinstance(data_val, date):
+            return datetime(data_val.year, data_val.month, data_val.day)
+    except Exception:
+        pass
+
+    s = str(data_val).strip()
+    if not s or s in ("—", "-", "None", "null"):
+        agora = datetime.now()
+        return datetime(agora.year, agora.month, agora.day)
+
+    for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d.%m.%Y", "%d-%m-%Y"):
+        try:
+            dt = datetime.strptime(s, fmt)
+            return datetime(dt.year, dt.month, dt.day)
+        except Exception:
+            pass
+
+    if len(s) >= 10:
+        for fmt in ("%d/%m/%Y", "%Y-%m-%d", "%d.%m.%Y", "%d-%m-%Y"):
+            try:
+                dt = datetime.strptime(s[:10], fmt)
+                return datetime(dt.year, dt.month, dt.day)
+            except Exception:
+                pass
+
+    agora = datetime.now()
+    return datetime(agora.year, agora.month, agora.day)
+
+
 def tentar_gravar_saida_osme(caminho_planilha, equipe, doc_sap, data_hoje, itens):
     """
     Grava uma saída OSME: deleta seriais de ESTOQUE e adiciona em FORNECIDOS.
@@ -175,6 +222,17 @@ def tentar_gravar_saida_osme(caminho_planilha, equipe, doc_sap, data_hoje, itens
                             ws_est.Rows(r).Delete()
 
                 if ws_forn is not None:
+                    # Deduplicação: verifica se serial já foi adicionado em FORNECIDOS
+                    seriais_ja_fornecidos = set()
+                    try:
+                        last_forn = ws_forn.Cells(ws_forn.Rows.Count, 1).End(3).Row
+                        for r_chk in range(max(1, last_forn - 5000), last_forn + 1):
+                            val_chk = str(ws_forn.Cells(r_chk, 1).Value or "").strip()
+                            if val_chk:
+                                seriais_ja_fornecidos.add(normalizar_texto(val_chk))
+                    except Exception:
+                        pass
+
                     next_row = ws_forn.UsedRange.Rows.Count + 1
                     while str(ws_forn.Cells(next_row, 1).Value or "").strip():
                         next_row += 1
@@ -182,6 +240,9 @@ def tentar_gravar_saida_osme(caminho_planilha, equipe, doc_sap, data_hoje, itens
                     for s in itens:
                         if s.get("eh_nao_serializado"):
                             continue
+                        if normalizar_texto(s["serial"]) in seriais_ja_fornecidos:
+                            continue  # Já gravado, pula para não duplicar
+
                         ws_forn.Cells(next_row, 1).Value = str(s["serial"]).strip()
                         ws_forn.Cells(next_row, 2).Value = str(s["material"]).strip()
                         ws_forn.Cells(next_row, 3).Value = str(s.get("deposito", "CL03")).strip()
@@ -219,9 +280,17 @@ def tentar_gravar_saida_osme(caminho_planilha, equipe, doc_sap, data_hoje, itens
 
         if "FORNECIDOS" in wb.sheetnames:
             ws_forn = wb["FORNECIDOS"]
+            seriais_ja_fornecidos = set()
+            for r_val in ws_forn.iter_rows(min_row=2, max_col=1, values_only=True):
+                if r_val and r_val[0]:
+                    seriais_ja_fornecidos.add(normalizar_texto(r_val[0]))
+
             for s in itens:
                 if s.get("eh_nao_serializado"):
                     continue
+                if normalizar_texto(s["serial"]) in seriais_ja_fornecidos:
+                    continue  # Já gravado, pula para não duplicar
+
                 ws_forn.append([
                     str(s["serial"]).strip(),
                     str(s["material"]).strip(),
@@ -688,32 +757,33 @@ class ModalVisualizarPendencias(ctk.CTkToplevel):
         super().__init__(parent)
         self.callback_apos_sincronizacao = callback_apos_sincronizacao
         self.title("⏳ Fila de Sincronização Pendente — Planilha Excel")
-        self.geometry("640x520")
-        self.minsize(580, 440)
+        self.geometry("680x540")
+        self.minsize(600, 460)
         self.attributes("-topmost", True)
         self.after(300, lambda: self.attributes("-topmost", False))
         self.configure(fg_color="#18181b")
 
         # Topo
-        frame_topo = ctk.CTkFrame(self, fg_color="#78350f", corner_radius=0, height=60)
+        frame_topo = ctk.CTkFrame(self, fg_color="#78350f", corner_radius=0)
         frame_topo.pack(side="top", fill="x")
-        frame_topo.pack_propagate(False)
 
         lbl_tit = ctk.CTkLabel(
             frame_topo,
             text="⏳ FILA DE SINCRONIZAÇÃO PENDENTE",
             font=("Segoe UI", 13, "bold"),
-            text_color="#fef3c7"
+            text_color="#fef3c7",
+            anchor="w"
         )
-        lbl_tit.pack(side="left", padx=16, pady=6)
+        lbl_tit.pack(fill="x", padx=16, pady=(8, 2))
 
         lbl_sub = ctk.CTkLabel(
             frame_topo,
-            text="Operações concluídas no SAP aguardando liberação da planilha pelo outro usuário",
+            text="Operações concluídas no SAP aguardando gravação na planilha Excel da rede",
             font=("Segoe UI", 10),
-            text_color="#fde68a"
+            text_color="#fde68a",
+            anchor="w"
         )
-        lbl_sub.pack(side="left", padx=16)
+        lbl_sub.pack(fill="x", padx=16, pady=(0, 8))
 
         # Status Bar
         self.f_status = ctk.CTkFrame(self, fg_color="#27272a", height=38, corner_radius=0)
@@ -736,30 +806,42 @@ class ModalVisualizarPendencias(ctk.CTkToplevel):
 
         self.btn_sincronizar = ctk.CTkButton(
             f_botoes,
-            text="🔄 Sincronizar Agora (Tentar Gravar)",
+            text="🔄 Sincronizar Agora",
             font=("Segoe UI", 11, "bold"),
             fg_color="#10b981",
             hover_color="#059669",
             height=38,
             command=self._acao_sincronizar_agora
         )
-        self.btn_sincronizar.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.btn_sincronizar.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        self.btn_limpar_tudo = ctk.CTkButton(
+            f_botoes,
+            text="🗑️ Limpar Fila (Já Gravado)",
+            font=("Segoe UI", 10, "bold"),
+            fg_color="#991b1b",
+            hover_color="#7f1d1d",
+            height=38,
+            command=self._acao_limpar_tudo
+        )
+        self.btn_limpar_tudo.pack(side="left", padx=(0, 6))
 
         self.btn_copiar = ctk.CTkButton(
             f_botoes,
-            text="📋 Copiar Tabela",
+            text="📋 Copiar",
             font=("Segoe UI", 11),
             fg_color="#0284c7",
             hover_color="#0369a1",
+            width=80,
             height=38,
             command=self._acao_copiar_tabela
         )
-        self.btn_copiar.pack(side="left", padx=(0, 8))
+        self.btn_copiar.pack(side="left", padx=(0, 6))
 
         btn_fechar = ctk.CTkButton(
             f_botoes,
             text="Fechar",
-            width=80,
+            width=70,
             height=38,
             fg_color="transparent",
             border_width=1,
@@ -790,10 +872,14 @@ class ModalVisualizarPendencias(ctk.CTkToplevel):
                 justify="center"
             ).pack()
             self.btn_sincronizar.configure(state="disabled")
+            if hasattr(self, "btn_limpar_tudo"):
+                self.btn_limpar_tudo.configure(state="disabled")
             self.btn_copiar.configure(state="disabled")
             return
 
         self.btn_sincronizar.configure(state="normal")
+        if hasattr(self, "btn_limpar_tudo"):
+            self.btn_limpar_tudo.configure(state="normal")
         self.btn_copiar.configure(state="normal")
 
         for idx, item in enumerate(pendencias):
@@ -852,25 +938,27 @@ class ModalVisualizarPendencias(ctk.CTkToplevel):
             f_info = ctk.CTkFrame(card, fg_color="transparent")
             f_info.pack(fill="x", padx=10, pady=(2, 6))
 
+            btn_excluir = ctk.CTkButton(
+                f_info,
+                text="Descartar",
+                width=72,
+                height=26,
+                font=("Segoe UI", 9, "bold"),
+                fg_color="#ef4444",
+                hover_color="#dc2626",
+                command=lambda pid=item.get("id"): self._descartar_item(pid)
+            )
+            btn_excluir.pack(side="right", padx=(8, 0), anchor="center")
+
             ctk.CTkLabel(
                 f_info,
                 text=f"{label_prefix}: {seriais_txt}\nStatus: ⚠️ {motivo}",
                 font=("Segoe UI", 10),
                 text_color="#fcd34d",
-                justify="left"
-            ).pack(side="left", anchor="w")
-
-            btn_excluir = ctk.CTkButton(
-                f_info,
-                text="Descartar",
-                width=65,
-                height=26,
-                font=("Segoe UI", 9),
-                fg_color="#ef4444",
-                hover_color="#dc2626",
-                command=lambda pid=item.get("id"): self._descartar_item(pid)
-            )
-            btn_excluir.pack(side="right", padx=(6, 0))
+                justify="left",
+                anchor="w",
+                wraplength=460
+            ).pack(side="left", fill="x", expand=True)
 
     def _descartar_item(self, pendencia_id):
         if messagebox.askyesno("Descartar Pendência", "Deseja realmente remover esta pendência da fila? Ela não será gravada na planilha."):
@@ -883,8 +971,12 @@ class ModalVisualizarPendencias(ctk.CTkToplevel):
         self.btn_sincronizar.configure(text="⏳ Gravando...", state="disabled")
         self.update_idletasks()
 
-        sucessos, restantes, msg = processar_todas_pendencias()
-        self._renderizar_itens()
+        sucessos, restantes, msg = 0, 0, ""
+        try:
+            sucessos, restantes, msg = processar_todas_pendencias()
+        finally:
+            self.btn_sincronizar.configure(text="🔄 Sincronizar Agora", state="normal")
+            self._renderizar_itens()
 
         if sucessos > 0 and restantes == 0:
             messagebox.showinfo(
@@ -900,8 +992,28 @@ class ModalVisualizarPendencias(ctk.CTkToplevel):
             messagebox.showwarning(
                 "Planilha Ainda Bloqueada",
                 "A planilha ainda não foi liberada pelo outro usuário no Excel da rede.\n\n"
+                f"Última resposta: {msg}\n\n"
                 "O N.E.X.U.S continuará tentando gravar automaticamente a cada 20 segundos em segundo plano."
             )
+
+        if self.callback_apos_sincronizacao:
+            self.callback_apos_sincronizacao()
+
+    def _acao_limpar_tudo(self):
+        qtd = len(carregar_pendencias())
+        if qtd == 0:
+            return
+        if messagebox.askyesno(
+            "Limpar Fila de Pendências",
+            f"Deseja realmente descartar todas as {qtd} operações pendentes da fila?\n\n"
+            "⚠️ Use esta opção apenas se você já tiver gravado esses registros manualmente na planilha Excel.",
+            icon="warning"
+        ):
+            limpar_todas_pendencias()
+            self._renderizar_itens()
+            if self.callback_apos_sincronizacao:
+                self.callback_apos_sincronizacao()
+            messagebox.showinfo("Fila Limpa", "A fila de pendências foi limpa com êxito.")
 
         if self.callback_apos_sincronizacao:
             self.callback_apos_sincronizacao()

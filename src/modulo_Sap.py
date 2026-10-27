@@ -241,7 +241,7 @@ def obter_info_sap_atual():
     if _sap_ocupado:
         return "SAP: ocupado..."
     
-    # 1. Tenta via COM Python primeiro
+    # 1. Tenta via COM Python primeiro (in-memory)
     try:
         pythoncom.CoInitialize()
         SapGuiAuto = win32com.client.GetObject("SAPGUI")
@@ -265,68 +265,38 @@ def obter_info_sap_atual():
                     return "SAP: aberto (sem sessão ativa)"
     except Exception:
         pass
+    finally:
+        try:
+            pythoncom.CoUninitialize()
+        except Exception:
+            pass
 
-    # 2. Fallback via VBScript nativo (conecta com a ROT do SAP GUI)
+    # 2. Detecção ultraleve em memória via API nativa do Windows (zero I/O de disco e zero subprocessos)
     try:
-        import tempfile
-        vbs = '''On Error Resume Next
-Set sap = GetObject("SAPGUI")
-If Err.Number <> 0 Or sap Is Nothing Then WScript.Quit 1
-Set app = sap.GetScriptingEngine
-If Err.Number <> 0 Or app Is Nothing Then WScript.Quit 2
-If app.Children.Count = 0 Then WScript.Quit 3
-Set conn = app.Children(0)
-If conn.Children.Count = 0 Then WScript.Quit 4
-Set sess = conn.Children(0)
-WScript.Echo sess.Info.SystemName & "|" & sess.Info.Client & "|" & sess.Info.User & "|" & sess.Info.Transaction
-'''
-        fd, path = tempfile.mkstemp(prefix="info_sap_", suffix=".vbs", text=True)
-        with os.fdopen(fd, "w", encoding="cp1252") as f:
-            f.write(vbs)
-        
-        cscripts = ["cscript.exe"]
-        cscript_sys32 = r"C:\Windows\System32\cscript.exe"
-        cscript_32 = r"C:\Windows\SysWOW64\cscript.exe"
-        if os.path.exists(cscript_sys32) and cscript_sys32 not in cscripts:
-            cscripts.append(cscript_sys32)
-        if os.path.exists(cscript_32) and cscript_32 not in cscripts:
-            cscripts.append(cscript_32)
+        import ctypes
+        user32 = ctypes.windll.user32
+        sap_detectado = [False, False]  # [tem_sessao, tem_logon]
 
-        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-        saida_vbs = ""
-        for cs in cscripts:
-            try:
-                res = subprocess.run([cs, "//nologo", path], capture_output=True, text=True, timeout=3, creationflags=creationflags)
-                if res.returncode == 0 and res.stdout.strip():
-                    saida_vbs = res.stdout.strip()
-                    break
-            except Exception:
-                continue
+        def enum_cb(hwnd, lparam):
+            if not user32.IsWindowVisible(hwnd):
+                return True
+            length = user32.GetWindowTextLengthW(hwnd)
+            if length > 0:
+                buff = ctypes.create_unicode_buffer(length + 1)
+                user32.GetWindowTextW(hwnd, buff, length + 1)
+                tit = buff.value.lower()
+                if "sap logon" in tit:
+                    sap_detectado[1] = True
+                elif "sap" in tit and ("easy access" in tit or "transação" in tit or "mandante" in tit or "sap gui" in tit):
+                    sap_detectado[0] = True
+            return True
 
-        try: os.remove(path)
-        except OSError: pass
+        WNDENUMPROC = ctypes.WINFUNCTYPE(ctypes.c_bool, ctypes.c_void_p, ctypes.c_void_p)
+        user32.EnumWindows(WNDENUMPROC(enum_cb), 0)
 
-        if saida_vbs and "|" in saida_vbs:
-            parts = saida_vbs.split("|")
-            if len(parts) >= 4:
-                return f"SAP: {parts[0] or 'SAP'} | Cliente {parts[1] or '-'} | Usuário {parts[2] or '-'} | Tx {parts[3] or '-'}"
-    except Exception:
-        pass
-
-    # 3. Se não tem sessão ativa, verifica se o processo saplogon ou sapgui está aberto
-    try:
-        creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-        out = subprocess.check_output(
-            'tasklist /FI "IMAGENAME eq sap*"',
-            shell=True,
-            text=True,
-            stderr=subprocess.DEVNULL,
-            creationflags=creationflags
-        )
-        out_lower = out.lower()
-        if "sapgui.exe" in out_lower:
+        if sap_detectado[0]:
             return "SAP: aberto (sessão em carregamento)"
-        elif "saplogon.exe" in out_lower:
+        elif sap_detectado[1]:
             return "SAP: Logon aberto (aguardando conexão/login)"
     except Exception:
         pass

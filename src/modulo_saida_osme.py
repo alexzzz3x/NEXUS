@@ -53,6 +53,54 @@ DEFAULT_PALETAS = {
 }
 
 
+PADRAO_MODELO_MEDIDOR = re.compile(
+    r"^(?:D12|D13|D23|D34|S23|S34|A34|C0006)[A-Z0-9_\-]+$",
+    re.IGNORECASE
+)
+PADRAO_MATERIAL_SAP = re.compile(
+    r"^510\d{3}$"
+)
+PALAVRAS_IGNORAR_SERIAIS = {
+    "MATERIAL", "MATERIAIS", "MAT", "COD", "CODIGO", "CÓDIGO",
+    "MODELO", "MEDIDOR", "MEDIDORES", "SERIAIS", "SERIAL", "SERIE", "SÉRIE",
+    "QTD", "QUANTIDADE", "UN", "UND", "UNID", "UNIDADE", "UNIDADES",
+    "CL03", "CL04", "DEPOSITO", "DEPÓSITO", "EQUIPE", "RECURSO",
+    "MONOFASICO", "MONOFÁSICO", "BIFASICO", "BIFÁSICO", "TRIFASICO", "TRIFÁSICO",
+    "NANSEN", "LANDIS", "ELETRA", "ELSTER", "ITRON", "SCHLUMBERGER", "SMART"
+}
+
+_CACHE_MATERIAIS_BANCO = None
+
+
+def obter_materiais_banco_local():
+    """Carrega todos os códigos de materiais e modelos cadastrados em banco_de_dados.xlsx."""
+    global _CACHE_MATERIAIS_BANCO
+    if _CACHE_MATERIAIS_BANCO is not None:
+        return _CACHE_MATERIAIS_BANCO
+    mats = set()
+    try:
+        import pandas as pd
+        caminho_banco = os.path.join(obter_diretorio_executavel(), "data", "banco_de_dados.xlsx")
+        if not os.path.exists(caminho_banco):
+            from utils_os import obter_caminho_recurso
+            caminho_banco = obter_caminho_recurso("data", "banco_de_dados.xlsx")
+        if os.path.exists(caminho_banco):
+            df = pd.read_excel(caminho_banco)
+            df.columns = df.columns.str.strip()
+            if "Material" in df.columns:
+                for val in df["Material"].dropna():
+                    s = str(val).strip().upper()
+                    if s:
+                        mats.add(s)
+                        norm = re.sub(r"[^A-Z0-9]", "", s)
+                        if norm:
+                            mats.add(norm)
+    except Exception:
+        pass
+    _CACHE_MATERIAIS_BANCO = mats
+    return _CACHE_MATERIAIS_BANCO
+
+
 def normalizar_texto(valor):
     if valor is None:
         return ""
@@ -1179,6 +1227,15 @@ class AbaSaidaOSME:
         )
         self.txt_seriais.pack(fill="x", pady=(4, 6))
 
+        # Eventos para autolimpeza de códigos de material/modelo ao colar
+        self.txt_seriais.bind("<<Paste>>", self._ao_colar_seriais)
+        self.txt_seriais.bind("<Control-v>", self._ao_colar_seriais)
+        self.txt_seriais.bind("<Control-V>", self._ao_colar_seriais)
+        if hasattr(self.txt_seriais, "_textbox"):
+            self.txt_seriais._textbox.bind("<<Paste>>", self._ao_colar_seriais)
+            self.txt_seriais._textbox.bind("<Control-v>", self._ao_colar_seriais)
+            self.txt_seriais._textbox.bind("<Control-V>", self._ao_colar_seriais)
+
         f_seriais_botoes = ctk.CTkFrame(card_seriais, fg_color="transparent")
         f_seriais_botoes.pack(fill="x")
 
@@ -1253,10 +1310,10 @@ class AbaSaidaOSME:
             "equipe": 90, "osme": 130, "status_validacao": 260
         }
 
-        frame_tv = ttk.Frame(self.frame_tabela)
+        frame_tv = ctk.CTkFrame(self.frame_tabela, fg_color="transparent")
         frame_tv.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
-        self.tree = ttk.Treeview(frame_tv, columns=colunas, show="headings", height=12)
+        self.tree = ttk.Treeview(frame_tv, columns=colunas, show="headings", height=12, style="SaidaOSME.Treeview")
         for c in colunas:
             self.tree.heading(c, text=titulos[c])
             self.tree.column(c, width=larguras[c], anchor="center")
@@ -1270,9 +1327,10 @@ class AbaSaidaOSME:
         self.tree.tag_configure("ok", foreground="#34d399")
         self.tree.tag_configure("bloqueado", foreground="#fca5a5", background="#450a0a")
         self.tree.tag_configure("alerta", foreground="#fcd34d")
+        self.tree.tag_configure("padrao", foreground="#f8fafc")
 
         # 5. PAINEL DE LOG DE AUDITORIA E EVENTOS
-        card_log = ctk.CTkFrame(self.frame_conteudo, corner_radius=8, fg_color="#172a45")
+        self.card_log = card_log = ctk.CTkFrame(self.frame_conteudo, corner_radius=8, fg_color="#172a45")
         card_log.pack(fill="x", pady=(0, 10))
 
         f_tit_log = ctk.CTkFrame(card_log, fg_color="transparent")
@@ -1779,15 +1837,132 @@ class AbaSaidaOSME:
             )
             btn_del.pack(side="left", padx=(0, 4), pady=2)
 
+    def _obter_conjunto_materiais_conhecidos(self) -> set:
+        """Retorna o conjunto de todos os códigos de materiais conhecidos (Cadastro, Estoque, Fornecidos e Banco)."""
+        mats = set(obter_materiais_banco_local())
+        if hasattr(self, "dados_materiais_cadastro") and self.dados_materiais_cadastro:
+            for k, info in self.dados_materiais_cadastro.items():
+                mats.add(k.upper())
+                cod = str(info.get("codigo") or "").strip().upper()
+                if cod:
+                    mats.add(cod)
+                    mats.add(normalizar_texto(cod))
+        if hasattr(self, "dados_estoque") and self.dados_estoque:
+            for info in self.dados_estoque.values():
+                m = str(info.get("material") or "").strip().upper()
+                if m and m != "—":
+                    mats.add(m)
+                    mats.add(normalizar_texto(m))
+        if hasattr(self, "dados_fornecidos") and self.dados_fornecidos:
+            for info in self.dados_fornecidos.values():
+                m = str(info.get("material") or "").strip().upper()
+                if m and m != "—":
+                    mats.add(m)
+                    mats.add(normalizar_texto(m))
+        return mats
+
+    def _eh_codigo_ou_modelo_material(self, token, mats_conhecidos=None) -> bool:
+        """Verifica se um token extraído é na verdade um código de material ou modelo de medidor."""
+        t = str(token or "").strip().upper()
+        if not t:
+            return False
+        if t in PALAVRAS_IGNORAR_SERIAIS:
+            return True
+        if PADRAO_MATERIAL_SAP.match(t):
+            return True
+        if PADRAO_MODELO_MEDIDOR.match(t):
+            return True
+        if mats_conhecidos:
+            if t in mats_conhecidos or normalizar_texto(t) in mats_conhecidos:
+                return True
+        return False
+
+    def _ao_colar_seriais(self, event=None):
+        """Ao colar texto no campo de seriais, higieniza automaticamente após inserção."""
+        if hasattr(self, "parent_frame") and self.parent_frame:
+            self.parent_frame.after(60, lambda: self._sanitizar_texto_seriais_auto(verbose=True))
+
+    def _sanitizar_texto_seriais_auto(self, verbose=True):
+        """
+        Higieniza o campo txt_seriais, removendo automaticamente códigos de material (ex: 510388, 510850)
+        e modelos de medidores (ex: D2315240E10SU) colados junto com os seriais.
+        """
+        try:
+            texto = self.txt_seriais.get("1.0", tk.END).strip()
+            if not texto:
+                return []
+
+            seriais_brutos = extrair_lista_seriais(texto)
+            if not seriais_brutos:
+                return []
+
+            mats_conhecidos = self._obter_conjunto_materiais_conhecidos()
+            seriais_limpos = []
+            materiais_removidos = []
+
+            for s in seriais_brutos:
+                if self._eh_codigo_ou_modelo_material(s, mats_conhecidos):
+                    materiais_removidos.append(s)
+                else:
+                    seriais_limpos.append(s)
+
+            if materiais_removidos:
+                self.txt_seriais.delete("1.0", tk.END)
+                if seriais_limpos:
+                    self.txt_seriais.insert("1.0", "\n".join(seriais_limpos))
+
+                unicos_mats = list(dict.fromkeys(materiais_removidos))
+                txt_mats = ", ".join(unicos_mats)
+                if verbose:
+                    self._log(f"🧹 Filtro automático: {len(materiais_removidos)} código(s) de material/modelo removido(s): {txt_mats}")
+                    self._status(f"Saída OSME: {len(materiais_removidos)} código(s) de material/modelo ({txt_mats}) removido(s) do campo de seriais.")
+
+            return seriais_limpos
+        except Exception:
+            return []
+
     def validar_seriais_acao(self):
         texto = self.txt_seriais.get("1.0", tk.END).strip()
         if not texto:
             messagebox.showwarning("Saída OSME", "Insira um ou mais números de série para validar.")
             return
 
-        seriais_extraidos = extrair_lista_seriais(texto)
-        if not seriais_extraidos:
+        seriais_brutos = extrair_lista_seriais(texto)
+        if not seriais_brutos:
             messagebox.showwarning("Saída OSME", "Nenhum serial válido foi identificado no texto inserido.")
+            return
+
+        # Filtra automaticamente códigos de material e modelos de medidores colados no campo
+        mats_conhecidos = self._obter_conjunto_materiais_conhecidos()
+        seriais_extraidos = []
+        materiais_removidos = []
+
+        for s in seriais_brutos:
+            if self._eh_codigo_ou_modelo_material(s, mats_conhecidos):
+                materiais_removidos.append(s)
+            else:
+                seriais_extraidos.append(s)
+
+        if materiais_removidos:
+            self.txt_seriais.delete("1.0", tk.END)
+            if seriais_extraidos:
+                self.txt_seriais.insert("1.0", "\n".join(seriais_extraidos))
+
+            unicos_mats = list(dict.fromkeys(materiais_removidos))
+            txt_mats = ", ".join(unicos_mats)
+            self._log(f"🧹 [Validação] {len(materiais_removidos)} código(s) de material/modelo removido(s): {txt_mats}")
+            self._status(f"Saída OSME: {len(materiais_removidos)} código(s) de material/modelo ({txt_mats}) removido(s) automaticamente.")
+
+        if not seriais_extraidos:
+            if materiais_removidos:
+                unicos_mats = ", ".join(dict.fromkeys(materiais_removidos))
+                messagebox.showinfo(
+                    "Saída OSME - Apenas Materiais Detectados",
+                    f"Foram identificados apenas códigos de material/modelo ({unicos_mats}) e nenhum número de série de medidor válido no campo.\n\n"
+                    "Para materiais não serializados, utilize o quadro à esquerda ('1. Materiais Não Serializados')."
+                )
+            else:
+                messagebox.showwarning("Saída OSME", "Nenhum serial válido foi identificado no texto inserido.")
             return
 
         eq_digitada = self.entry_equipe.get().strip().upper()
@@ -2971,23 +3146,63 @@ class AbaSaidaOSME:
                 self.lbl_osme_numero.configure(text_color=accent)
             if hasattr(self, "frame_tabela") and self.frame_tabela:
                 self.frame_tabela.configure(fg_color=container)
+            if hasattr(self, "entry_equipe") and self.entry_equipe:
+                self.entry_equipe.configure(fg_color=inp, text_color=texto)
+            if hasattr(self, "entry_data_lancamento") and self.entry_data_lancamento:
+                self.entry_data_lancamento.configure(fg_color=inp, text_color=texto)
+            if hasattr(self, "entry_mat_ns") and self.entry_mat_ns:
+                self.entry_mat_ns.configure(fg_color=inp, text_color=texto)
+            if hasattr(self, "entry_qtd_ns") and self.entry_qtd_ns:
+                self.entry_qtd_ns.configure(fg_color=inp, text_color=texto)
+            if hasattr(self, "card_log") and self.card_log:
+                self.card_log.configure(fg_color=container)
+            if hasattr(self, "txt_seriais") and self.txt_seriais:
+                self.txt_seriais.configure(fg_color=inp, text_color=texto)
+            if hasattr(self, "txt_log") and self.txt_log:
+                self.txt_log.configure(fg_color=inp, text_color=texto)
         except Exception:
             pass
 
-        estilo = ttk.Style()
-        estilo.configure(
-            "Treeview",
-            background=container,
-            foreground=texto,
-            fieldbackground=inp,
-            bordercolor=container,
-            relief="flat"
-        )
-        estilo.map(
-            "Treeview",
-            background=[("selected", accent)],
-            foreground=[("selected", "white")]
-        )
+        try:
+            estilo = ttk.Style()
+            if "clam" in estilo.theme_names():
+                estilo.theme_use("clam")
+
+            estilo.configure(
+                "SaidaOSME.Treeview",
+                background=inp,
+                foreground=texto,
+                fieldbackground=inp,
+                borderwidth=0,
+                relief="flat",
+                font=("Segoe UI", 9),
+                rowheight=26
+            )
+            estilo.configure(
+                "SaidaOSME.Treeview.Heading",
+                background=container,
+                foreground="#38bdf8",
+                font=("Segoe UI", 9, "bold"),
+                borderwidth=1,
+                relief="flat"
+            )
+            estilo.map(
+                "SaidaOSME.Treeview",
+                background=[("selected", accent)],
+                foreground=[("selected", "#ffffff")]
+            )
+            estilo.map(
+                "SaidaOSME.Treeview.Heading",
+                background=[("active", cores.get("hover", "#0284c7"))],
+                foreground=[("active", "#ffffff")]
+            )
+            if hasattr(self, "tree") and self.tree:
+                self.tree.tag_configure("ok", foreground="#34d399")
+                self.tree.tag_configure("bloqueado", foreground="#fca5a5", background="#450a0a")
+                self.tree.tag_configure("alerta", foreground="#fcd34d")
+                self.tree.tag_configure("padrao", foreground=texto)
+        except Exception:
+            pass
 
 
 def construir_aba_saida_osme(parent_frame, label_status_global=None, paletas=None, obter_tema_atual=None):
